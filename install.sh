@@ -103,7 +103,7 @@ fetch() {
     # Disable ~/.curlrc, require HTTPS even across redirects, and bound retries.
     curl -q --fail --silent --show-error --location --proto '=https' \
         --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 180 \
-        --retry 3 --retry-max-time 240 "$@"
+        --retry 3 --retry-all-errors --retry-max-time 240 "$@"
 }
 
 main "$@"

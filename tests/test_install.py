@@ -26,7 +26,7 @@ elif name == "id":
     print(os.environ.get("INSTALL_TEST_UID", "0"))
 elif name == "curl":
     assert args[0] == "-q"
-    for flag, value in [("--proto", "=https"), ("--proto-redir", "=https"), ("--tlsv1.2", None), ("--fail", None), ("--max-time", "180")]:
+    for flag, value in [("--proto", "=https"), ("--proto-redir", "=https"), ("--tlsv1.2", None), ("--fail", None), ("--retry-all-errors", None), ("--max-time", "180")]:
         assert flag in args
         if value is not None:
             assert args[args.index(flag) + 1] == value

@@ -6,7 +6,7 @@
 
 需要 **systemd、sudo/root 权限、amd64 或 arm64 Linux**。支持 Debian、Ubuntu、Fedora、Arch。普通代理不需要 TUN 设备；TUN 需要 `/dev/net/tun` 和网络管理权限。
 
-通过本仓库的安装脚本安装最新稳定版（需要 `curl` 和 `coreutils`）：
+通过本仓库的安装脚本安装最新稳定版（需要 `curl` 7.71+ 和 `coreutils`）：
 
 ```sh
 curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Onicc/clashcli/main/install.sh | sh

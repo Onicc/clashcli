@@ -11,7 +11,9 @@ def run(args):
         # This phase has no subscriptions or private credentials. Preserve PAM
         # diagnostics from the disposable account when a distro fixture fails.
         journal = subprocess.run(["journalctl", "--no-pager", "-t", "sudo", "-n", "15"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
-        raise AssertionError(result.stdout.decode(errors="replace")[-4000:] + "\n" + journal.stdout.decode(errors="replace")[-3000:])
+        helper = subprocess.run(["journalctl", "--no-pager", "_COMM=unix_chkpwd", "-n", "15"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
+        capabilities = "\n".join(line for line in pathlib.Path("/proc/self/status").read_text().splitlines() if line.startswith(("Cap", "NoNewPrivs")))
+        raise AssertionError(result.stdout.decode(errors="replace")[-4000:] + "\n" + journal.stdout.decode(errors="replace")[-2000:] + "\n" + helper.stdout.decode(errors="replace")[-2000:] + "\n" + capabilities)
     return result.stdout
 
 
