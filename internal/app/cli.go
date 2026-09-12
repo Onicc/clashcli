@@ -676,7 +676,7 @@ func printStatus(ctx context.Context, p Paths, jsonOutput bool) error {
 	defer cancel()
 	var conf any
 	apiErr := APIFor(s).Do(probeCtx, "GET", "/configs", nil, &conf)
-	proxy, proxyErr := proxyActual(ctx, p)
+	proxy, proxyErr := proxyActual(probeCtx, p)
 	if proxyErr != nil {
 		proxy = map[string]any{"error": Redact(proxyErr.Error())}
 	}
@@ -871,6 +871,11 @@ func doctor(ctx context.Context, p Paths, repair bool) error {
 			return err
 		}
 		if !(RealCore{p, s}).Running(ctx) {
+			// Clear stale system proxy state under its lock before restarting an
+			// unresponsive core; a failed start must not leave a dead proxy behind.
+			if err = stopService(ctx, p); err != nil {
+				return err
+			}
 			if err = startService(ctx, p); err != nil {
 				return err
 			}

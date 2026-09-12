@@ -2,6 +2,7 @@
 import os
 import pathlib
 import pwd
+import shutil
 import subprocess
 import time
 
@@ -14,7 +15,18 @@ def run(args):
         journal = subprocess.run(["journalctl", "--no-pager", "-t", "sudo", "-n", "15"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
         helper = subprocess.run(["journalctl", "--no-pager", "_COMM=unix_chkpwd", "-n", "15"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
         capabilities = "\n".join(line for line in pathlib.Path("/proc/self/status").read_text().splitlines() if line.startswith(("Cap", "NoNewPrivs")))
-        raise AssertionError(result.stdout.decode(errors="replace")[-4000:] + "\n" + journal.stdout.decode(errors="replace")[-2000:] + "\n" + helper.stdout.decode(errors="replace")[-2000:] + "\n" + capabilities)
+        identity = []
+        for lookup in [["getent", "shadow", "clashcli-installer-test"], ["getent", "-s", "files", "shadow", "clashcli-installer-test"], ["/usr/sbin/unix_chkpwd", "clashcli-installer-test", "chkexpiry"]]:
+            if pathlib.Path(lookup[0]).is_absolute() and not pathlib.Path(lookup[0]).exists():
+                continue
+            probe = subprocess.run(lookup, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+            # Never log shadow records, even for this disposable user.
+            identity.append(" ".join(lookup) + f": exit={probe.returncode}, records={len(probe.stdout.splitlines())}")
+        trace_text = ""
+        if shutil.which("strace") and pwd.getpwnam("clashcli-installer-test"):
+            trace = subprocess.run(["strace", "-f", "-e", "trace=openat,execve,setuid,setresuid,setfsuid,capset", "runuser", "-u", "clashcli-installer-test", "--", "sudo", "-n", "true"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+            trace_text = "\n".join(line for line in trace.stderr.decode(errors="replace").splitlines() if any(key in line for key in ["/etc/shadow", "unix_chkpwd", "setuid(", "setresuid(", "capset("]))[-2500:]
+        raise AssertionError(result.stdout.decode(errors="replace")[-3000:] + "\n" + journal.stdout.decode(errors="replace")[-1500:] + "\n" + helper.stdout.decode(errors="replace")[-1000:] + "\n" + capabilities + "\n" + "\n".join(identity) + "\n" + trace_text)
     return result.stdout
 
 

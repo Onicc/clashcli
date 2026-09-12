@@ -309,7 +309,7 @@ cli("stop")
 assert cli("doctor", ok=False).returncode != 0
 assert pathlib.Path("/etc/environment").read_bytes() == original_env
 assert not status()["core_running"]
-cli("start")
+cli("doctor", "--repair")
 assert status()["system_proxy"]["environment"]
 cli("proxy", "off")
 run(["systemctl", "kill", "--signal=KILL", "--kill-whom=main", "clashcli.service"])
@@ -319,7 +319,7 @@ while time.time() < deadline:
         break
     time.sleep(1)
 assert status()["core_running"]
-passed("stop restores proxy, start restores preference, systemd crash restart")
+passed("stop restores proxy, doctor repairs stopped core and restores preference, systemd crash restart")
 
 # Use real GNOME and KDE settings in a disposable user's session.
 import yaml
