@@ -61,6 +61,8 @@ main() {
     (cd "$download_dir" && printf '%s  %s\n' "$digest" "$asset" | sha256sum -c -) || die 'SHA-256 verification failed; existing installation unchanged.'
     # The privileged section is deliberately small. Stage on the destination
     # filesystem, then rename atomically (also works while the old CLI runs).
+    # Variables in this literal script must expand in the privileged child only.
+    # shellcheck disable=SC2016
     install_command='
         set -eu
         PATH=/usr/sbin:/usr/bin:/sbin:/bin

@@ -24,7 +24,8 @@ assert not pathlib.Path("/etc/systemd/system/clashcli.service").exists()
 
 # A non-root upgrade exercises the real sudo path. Only this disposable user
 # receives temporary non-interactive sudo; clashcli itself never creates it.
-run(["useradd", "-m", "clashcli-installer-test"])
+run(["useradd", "-m", "-s", "/bin/bash", "clashcli-installer-test"])
+run(["usermod", "-p", "*", "clashcli-installer-test"])
 sudoers = pathlib.Path("/etc/sudoers.d/clashcli-installer-test")
 sudoers.write_text("clashcli-installer-test ALL=(root) NOPASSWD: ALL\n")
 sudoers.chmod(0o440)

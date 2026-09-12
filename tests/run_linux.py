@@ -75,11 +75,6 @@ def main():
         run(["docker", "create", "--platform", options.platform, "--name", subject, "--label", "io.clashcli.test=" + token, "--network", network, "--ip", "10.231.78.3", "--privileged", "--cgroupns=private", "--tmpfs", "/run", "--tmpfs", "/run/lock", "--tmpfs", "/tmp", *publish, image])
         containers.append(subject)
         run(["docker", "start", subject])
-        run(["docker", "cp", str(REPO / "install.sh"), subject + ":/install.sh"])
-        run(["docker", "cp", str(REPO / "tests/install_linux.py"), subject + ":/install_linux.py"])
-        print(run(["docker", "exec", "-e", "CLASHCLI_INSTALL_TEST_CONTAINER=1", subject, "python3", "/install_linux.py"], timeout=1500).stdout.decode(), flush=True)
-        run(["docker", "cp", str(binary), subject + ":/usr/local/bin/clashcli"])
-        run(["docker", "cp", str(REPO / "tests/inside_linux.py"), subject + ":/inside_linux.py"])
         ready = False
         for _ in range(60):
             result = run(["docker", "exec", subject, "systemctl", "is-system-running"], check=False)
@@ -89,6 +84,12 @@ def main():
             time.sleep(1)
         if not ready:
             raise RuntimeError("real systemd unavailable: " + run(["docker", "logs", subject], check=False).stdout.decode()[-3000:])
+        # Boot tmpfiles/user setup must finish before downloads and sudo tests.
+        run(["docker", "cp", str(REPO / "install.sh"), subject + ":/install.sh"])
+        run(["docker", "cp", str(REPO / "tests/install_linux.py"), subject + ":/install_linux.py"])
+        print(run(["docker", "exec", "-e", "CLASHCLI_INSTALL_TEST_CONTAINER=1", subject, "python3", "/install_linux.py"], timeout=1500).stdout.decode(), flush=True)
+        run(["docker", "cp", str(binary), subject + ":/usr/local/bin/clashcli"])
+        run(["docker", "cp", str(REPO / "tests/inside_linux.py"), subject + ":/inside_linux.py"])
         print("TEST systemd ready; installing and exercising real mihomo", flush=True)
         # Stream test progress. Live URLs enter the child over stdin only.
         run(["docker", "exec", subject, "mkdir", "-p", "/coverage"])

@@ -88,7 +88,7 @@ clashcli uninstall --purge   # 卸载并永久删除订阅与配置
 
 卸载恢复 clashcli 接管前的代理值，保留用户后来作出的其他修改。
 
-更多内容：[高级使用](docs/usage.md) · [设计与调研](docs/design.md) · [验证记录](docs/test-results.md) · [测试方法](docs/testing.md) · [第三方组件](THIRD_PARTY_NOTICES.md)
+更多内容：[高级使用](docs/usage.md) · [设计与调研](docs/design.md) · [整体审查](docs/review.md) · [验证记录](docs/test-results.md) · [测试方法](docs/testing.md) · [第三方组件](THIRD_PARTY_NOTICES.md)
 
 ## 开发
 
