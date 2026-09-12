@@ -13,10 +13,11 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make test check release VERSION="$GITHUB_REF_NAME"
+      - run: tar -czf dist/licenses.tar.gz LICENSE THIRD_PARTY_NOTICES.md third_party/licenses
       - name: Checksums
         working-directory: dist
-        run: sha256sum clashcli-linux-* > SHA256SUMS
+        run: sha256sum clashcli-linux-* licenses.tar.gz > SHA256SUMS
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/clashcli-linux-* dist/SHA256SUMS --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/clashcli-linux-* dist/licenses.tar.gz dist/SHA256SUMS --verify-tag --generate-notes

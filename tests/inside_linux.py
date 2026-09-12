@@ -47,6 +47,40 @@ def status():
 def passed(label):
     print("PASS " + label, flush=True)
 
+def terminal_session(args, prompts):
+    import pty
+    import select
+    master, slave = pty.openpty()
+    proc = subprocess.Popen(["clashcli", *args], stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    os.close(slave)
+    transcript = b""
+    cursor = 0
+    try:
+        for prompt, answer in prompts:
+            deadline = time.time() + 120
+            while prompt.encode() not in transcript[cursor:]:
+                assert time.time() < deadline and proc.poll() is None, "terminal prompt missing"
+                if select.select([master], [], [], 1)[0]:
+                    transcript += os.read(master, 65536)
+            cursor = len(transcript)
+            time.sleep(0.05)
+            os.write(master, answer.encode() + b"\n")
+        deadline = time.time() + 180
+        while proc.poll() is None:
+            assert time.time() < deadline, "terminal command timed out"
+            if select.select([master], [], [], 1)[0]:
+                try:
+                    transcript += os.read(master, 65536)
+                except OSError:
+                    break
+        assert proc.wait(timeout=10) == 0, "terminal command failed"
+        return transcript
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=10)
+        os.close(master)
+
 
 run(["useradd", "-m", "-s", "/bin/bash", "fixtureuser"])
 run(["usermod", "-p", "*", "fixtureuser"])
@@ -285,6 +319,11 @@ for desktop in ["gnome", "kde"]:
     assert pathlib.Path("/etc/environment").read_bytes() == original_env
     passed("real " + desktop + " persistence and restore")
 settings_file.write_text(re.sub(r"(?m)^desktop:.*$", "desktop: none", settings_file.read_text()))
+terminal_session([], [("请选择", "1"), ("请选择", "0")])
+transcript = terminal_session(["sub", "add"], [("订阅名称", "interactive"), ("订阅链接", FIXTURE + "/subscription?token=INTERACTIVE_SECRET")])
+assert b"INTERACTIVE_SECRET" not in transcript, "secret was echoed to terminal"
+cli("sub", "remove", "interactive")
+passed("real terminal menu and hidden subscription entry")
 
 for index, url in enumerate(LIVE, 1):
     result = cli("sub", "add", "live-" + str(index), "--url-stdin", data=(url + "\n").encode(), ok=False, timeout=600)

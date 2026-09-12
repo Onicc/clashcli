@@ -34,4 +34,4 @@ Linux 测试使用真实 systemd、mihomo、D-Bus/GSettings 和 KDE 工具。测
 
 所有失败也必须通过清理核验；缺少 systemd/TUN 或外部网络不可达时不能将该项写成通过。
 
-具体执行记录将在完成验证后记录到 `docs/test-results.md`。
+具体执行记录见[验证记录](test-results.md)。
