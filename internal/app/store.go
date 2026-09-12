@@ -216,8 +216,10 @@ func removeGeneration(p Paths, path string) error {
 
 var urlPattern = regexp.MustCompile(`(?i)(?:https?|socks5h?)://[^\s<>"']+`)
 var credentialPattern = regexp.MustCompile(`(?i)(token|password|passwd|secret|authorization|uuid)(["']?\s*[:=]\s*["']?)[^\s,"'}]+`)
+var sharePattern = regexp.MustCompile(`(?i)(?:ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|anytls|mierus)://[^\s<>"']+`)
 
 func Redact(s string) string {
+	s = sharePattern.ReplaceAllString(s, "[REDACTED SHARE LINK]")
 	s = urlPattern.ReplaceAllStringFunc(s, func(v string) string {
 		if i := strings.Index(v, "?"); i >= 0 {
 			v = v[:i] + "?[REDACTED]"

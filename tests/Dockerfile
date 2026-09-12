@@ -1,0 +1,10 @@
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive container=docker
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    systemd systemd-sysv dbus dbus-user-session iproute2 iptables nftables \
+    curl ca-certificates python3 python3-yaml python3-gi gir1.2-soup-3.0 \
+    libglib2.0-bin dconf-cli glib-networking gsettings-desktop-schemas \
+    libkf5config-bin sudo openssh-server \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

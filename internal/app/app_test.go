@@ -158,6 +158,14 @@ rules: ['RULE-SET,domains,DIRECT', 'MATCH,PROXY']
 	if _, err = os.Stat(path); err != nil {
 		t.Fatal(err)
 	}
+	payload, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(payload), "\n    - example.com") {
+		t.Fatal("rule YAML not normalized", err)
+	}
+	identical, err := buildGeneration(context.Background(), p, s, Subscription{ID: "test"}, []byte(raw))
+	if err != nil || !sameGeneration(g.Path, identical.Path) {
+		t.Fatal("equivalent content triggers needless reload", err)
+	}
 	s.Tun = true
 	cloned, err := cloneGeneration(p, s, g.Path)
 	if err != nil {
@@ -174,6 +182,10 @@ func TestRemoteFileProviderRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("allowed local file")
 	}
+	_, err = buildGeneration(context.Background(), p, DefaultSettings(), Subscription{}, []byte("proxies: [{name: ssh, type: ssh, server: example.com, port: 22, private-key: /root/.ssh/id_rsa}]"))
+	if err == nil {
+		t.Fatal("remote proxy can read local key")
+	}
 }
 
 type fakeCore struct {
@@ -181,6 +193,7 @@ type fakeCore struct {
 	reloadFail map[string]bool
 	checkFail  map[string]bool
 	loaded     string
+	restarts   int
 }
 
 func (c *fakeCore) Running(context.Context) bool                { return c.running }
@@ -198,7 +211,7 @@ func (c *fakeCore) Check(_ context.Context, g Generation) error {
 	}
 	return nil
 }
-func (c *fakeCore) Restart(context.Context) error { return nil }
+func (c *fakeCore) Restart(context.Context) error { c.restarts++; return nil }
 func txFixture(t *testing.T) (Paths, Settings, Generation, Generation, *fakeCore) {
 	t.Helper()
 	p := testPaths(t)
@@ -253,8 +266,8 @@ func TestAtomicCommitAndRollback(t *testing.T) {
 					t.Fatal(err, link, actual)
 				}
 				if failure == "rollback" {
-					if _, err = os.Stat(m.journal()); err != nil {
-						t.Fatal("lost recovery journal")
+					if _, err = os.Stat(m.journal()); !errors.Is(err, os.ErrNotExist) || c.restarts != 1 {
+						t.Fatal("restart fallback did not finalize recovery")
 					}
 				}
 			}
@@ -403,4 +416,66 @@ func FuzzSubscriptionParser(f *testing.F) {
 		}
 		_, _, _, _ = parseSubscription(b)
 	})
+}
+
+func TestCandidateReadiness(t *testing.T) {
+	doc := Document{"proxies": []any{Document{"name": "one"}}, "proxy-providers": Document{"remote": Document{}}, "rules": []any{"MATCH,one"}}
+	e := Expectation{Proxies: []string{"one"}, Rules: 1, ProxyProviders: map[string]int{}}
+	if candidateReady(doc, e) {
+		t.Fatal("accepted API before provider initialization")
+	}
+	e.ProxyProviders["remote"] = 1
+	if !candidateReady(doc, e) {
+		t.Fatal("ready snapshot rejected")
+	}
+	e.Rules = 0
+	if candidateReady(doc, e) {
+		t.Fatal("accepted API before rules initialization")
+	}
+}
+
+func TestProviderHeadersAndRedirect(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Private") != "" {
+			t.Error("credential leaked across origins")
+		}
+		fmt.Fprintln(w, "payload:\n  - example.com")
+	}))
+	defer target.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Private") != "test" {
+			t.Error("provider header missing")
+		}
+		http.Redirect(w, r, target.URL, 302)
+	}))
+	defer origin.Close()
+	_, err := downloadHeaders(context.Background(), origin.URL, 1000, "", "", http.Header{"X-Private": []string{"test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHistoryOnlyCommittedAndScoped(t *testing.T) {
+	p, s, old, next, _ := txFixture(t)
+	s.Subscriptions[0].Generation = old.Path
+	if err := saveSettings(p, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := markCommitted(old.Path); err != nil {
+		t.Fatal(err)
+	}
+	discardUncommitted(p, next.Path)
+	if _, err := os.Stat(next.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failed candidate retained")
+	}
+	pruneGenerations(p)
+	if _, err := os.Stat(old.Path); err != nil {
+		t.Fatal("active version pruned")
+	}
+}
+
+func TestDigestRejectsMismatch(t *testing.T) {
+	if verifyDigest([]byte("modified"), strings.Repeat("0", 64)) == nil {
+		t.Fatal("accepted invalid checksum")
+	}
 }

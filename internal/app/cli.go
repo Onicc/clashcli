@@ -271,7 +271,7 @@ func readURL(stdin bool) (string, error) {
 }
 func initialize(ctx context.Context, p Paths, o initOptions) error {
 	if _, err := os.Stat(p.Settings()); err == nil {
-		return errors.New("已初始化；请通过 sub add / sub edit 修改订阅")
+		return resumeInstallation(ctx, p, o)
 	}
 	if _, err := os.Stat("/run/systemd/system"); err != nil {
 		return errors.New("需要正在运行的 systemd；请在支持的 Linux 主机上使用")
@@ -384,6 +384,62 @@ func initialize(ctx context.Context, p Paths, o initOptions) error {
 		}
 	}
 	fmt.Println("配置完成。输入 clashcli 打开菜单；proxy on 开启系统代理，tun on 开启 TUN。")
+	return printStatus(ctx, p, false)
+}
+
+// A failed first download and a non-purging uninstall must both be recoverable.
+func resumeInstallation(ctx context.Context, p Paths, o initOptions) error {
+	s, err := loadSettings(p)
+	if err != nil {
+		return err
+	}
+	fmt.Println("保留现有订阅与偏好，检查并恢复安装…")
+	if _, err = os.Stat(p.Core()); err != nil || o.CoreFile != "" {
+		if err = installCore(ctx, p, o.CoreFile); err != nil {
+			return err
+		}
+	}
+	if _, err = os.Stat(filepath.Join(p.Data, "ui", "current", "index.html")); err != nil || o.UIFile != "" {
+		if err = installUI(ctx, p, o.UIFile); err != nil {
+			return err
+		}
+	}
+	if err = ensureGeo(ctx, p); err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if exe != p.Executable() {
+		if err = copyFile(exe, p.Executable(), 0755); err != nil {
+			return err
+		}
+	}
+	if err = (Manager{P: p, Core: RealCore{p, s}}).Recover(ctx, false); err != nil {
+		return err
+	}
+	if _, err = os.Stat(filepath.Join(p.Current(), "config.yaml")); err != nil {
+		if err = updateSubscription(ctx, p, s.Active, true); err != nil {
+			return err
+		}
+	}
+	if err = installService(ctx, p); err != nil {
+		return err
+	}
+	for _, sub := range s.Subscriptions {
+		if err = configureTimer(ctx, p, sub); err != nil {
+			return err
+		}
+	}
+	if err = systemctl(ctx, "enable", "clashcli.service"); err != nil {
+		return err
+	}
+	if !o.NoStart {
+		if err = startService(ctx, p); err != nil {
+			return err
+		}
+	}
 	return printStatus(ctx, p, false)
 }
 func validateSubInput(name, raw string) error {
@@ -528,6 +584,11 @@ func subscriptionCommand(p Paths) *cobra.Command {
 			return errors.New("请先切换到其他订阅，再删除此活动订阅")
 		}
 		oldID := v.ID
+		unlock, err := lock(cmd.Context(), filepath.Join(p.Run, "sub-"+oldID+".lock"))
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		v.Calendar = ""
 		if err = configureTimer(cmd.Context(), p, *v); err != nil {
 			return err
@@ -545,6 +606,9 @@ func subscriptionCommand(p Paths) *cobra.Command {
 			current.Subscriptions = out
 			return nil
 		})
+		if err == nil {
+			pruneGenerations(p)
+		}
 		return err
 	}})
 	var calendar string
@@ -797,8 +861,15 @@ func doctor(ctx context.Context, p Paths, repair bool) error {
 				return e
 			}
 		}
+		s, err = loadSettings(p)
+		if err != nil {
+			return err
+		}
 		if !(RealCore{p, s}).Running(ctx) {
 			if err = disableProxy(ctx, p); err != nil {
+				return err
+			}
+			if err = startService(ctx, p); err != nil {
 				return err
 			}
 		}
@@ -844,7 +915,7 @@ func rollbackPrevious(ctx context.Context, p Paths) error {
 			continue
 		}
 		var g Generation
-		if readJSON(filepath.Join(path, "generation.json"), &g) != nil || g.SourceID != s.Active {
+		if readJSON(filepath.Join(path, "generation.json"), &g) != nil || g.SourceID != s.Active || !g.Committed {
 			continue
 		}
 		info, err := e.Info()
@@ -860,6 +931,7 @@ func rollbackPrevious(ctx context.Context, p Paths) error {
 	if err != nil {
 		return err
 	}
+	defer discardUncommitted(p, g.Path)
 	core := RealCore{p, s}
 	if err = core.Validate(ctx, &g); err != nil {
 		return err
@@ -871,14 +943,18 @@ func rollbackPrevious(ctx context.Context, p Paths) error {
 	sub.Generation = g.Path
 	sub.ETag = ""
 	sub.Modified = ""
-	return (Manager{P: p, Core: core}).Apply(ctx, g, s, s.Revision)
+	err = (Manager{P: p, Core: core}).Apply(ctx, g, s, s.Revision)
+	if err == nil {
+		pruneGenerations(p)
+	}
+	return err
 }
 func menu(ctx context.Context, p Paths) error {
 	if !interactive() {
 		return printStatus(ctx, p, false)
 	}
 	for {
-		fmt.Println("\nclashcli\n1. 状态\n2. 系统代理开关\n3. TUN 开关\n4. 更新订阅\n5. 切换订阅\n6. 选择节点\n7. 查看日志\n8. UI 地址\n9. 启动 / 停止\n0. 退出")
+		fmt.Println("\nclashcli\n1. 状态\n2. 系统代理开关\n3. TUN 开关\n4. 更新订阅\n5. 切换订阅\n6. 选择节点\n7. 查看日志\n8. UI 地址\n9. 启动 / 停止\n10. 管理订阅与更新周期\n0. 退出")
 		choice, err := prompt("请选择", "1", false)
 		if err != nil {
 			return err
@@ -919,6 +995,27 @@ func menu(ctx context.Context, p Paths) error {
 				err = stopService(ctx, p)
 			} else {
 				err = startService(ctx, p)
+			}
+		case "10":
+			var action string
+			action, err = choose("订阅操作：添加 / 修改链接 / 更新周期 / 删除", []string{"add", "edit", "schedule", "remove"})
+			if err == nil {
+				args := []string{action}
+				if action != "add" {
+					names := []string{}
+					for _, sub := range s.Subscriptions {
+						names = append(names, sub.Name)
+					}
+					var name string
+					name, err = choose("选择订阅", names)
+					args = append(args, name)
+				}
+				if err == nil {
+					command := subscriptionCommand(p)
+					command.SilenceErrors, command.SilenceUsage = true, true
+					command.SetArgs(args)
+					err = command.ExecuteContext(ctx)
+				}
 			}
 		default:
 			err = errors.New("无效选项")

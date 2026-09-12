@@ -1,0 +1,22 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - run: make test check release VERSION="$GITHUB_REF_NAME"
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum clashcli-linux-* > SHA256SUMS
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/clashcli-linux-* dist/SHA256SUMS --verify-tag --generate-notes

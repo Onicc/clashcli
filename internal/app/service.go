@@ -125,7 +125,13 @@ func startService(ctx context.Context, p Paths) error {
 	return (RealCore{p, s}).Check(ctx, g)
 }
 func stopService(ctx context.Context, p Paths) error {
-	if err := disableProxy(ctx, p); err != nil {
+	unlock, err := lock(ctx, filepath.Join(p.Run, "proxy.lock"))
+	if err != nil {
+		return err
+	}
+	err = disableProxy(ctx, p)
+	unlock() // ExecStopPost acquires the same lock.
+	if err != nil {
 		return err
 	}
 	return systemctl(ctx, "stop", "clashcli.service")
@@ -139,6 +145,11 @@ func removeInstallation(ctx context.Context, p Paths, purge bool) error {
 		sub.Calendar = ""
 		if err = configureTimer(ctx, p, sub); err != nil {
 			return err
+		}
+		if subscriptionID.MatchString(sub.ID) {
+			if err = systemctl(ctx, "stop", "clashcli-update@"+sub.ID+".service"); err != nil {
+				return err
+			}
 		}
 	}
 	if err = stopService(ctx, p); err != nil {

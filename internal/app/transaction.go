@@ -33,6 +33,45 @@ func (m Manager) checkpoint(stage string) error {
 	return nil
 }
 func (m Manager) Apply(ctx context.Context, g Generation, next Settings, revision uint64) error {
+	err := m.applyLocked(ctx, g, next, revision)
+	var recovery *rollbackFailure
+	if !errors.As(err, &recovery) {
+		return err
+	}
+	// Restart only after releasing the mutation lock: ExecStartPre also recovers transactions.
+	repairCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if e := m.Recover(repairCtx, true); e != nil {
+		return err
+	}
+	if e := m.Core.Restart(repairCtx); e != nil {
+		return fmt.Errorf("旧配置已恢复，但内核重启失败；请运行 doctor --repair: %w", e)
+	}
+	s, e := loadSettings(m.P)
+	if e != nil {
+		return e
+	}
+	core := m.Core
+	if real, ok := core.(RealCore); ok {
+		real.S = s
+		core = real
+	}
+	var previous Generation
+	if e = readJSON(filepath.Join(m.P.Current(), "generation.json"), &previous); e == nil {
+		e = core.Check(repairCtx, previous)
+	}
+	if e != nil {
+		return fmt.Errorf("旧配置已恢复，但内核检查失败: %w", e)
+	}
+	return fmt.Errorf("更新失败，已恢复旧配置并重启内核: %w", recovery.cause)
+}
+
+type rollbackFailure struct{ cause, restore error }
+
+func (e *rollbackFailure) Error() string {
+	return fmt.Sprintf("更新失败（%v）；回滚未完成（%v），请运行 clashcli doctor --repair", e.cause, e.restore)
+}
+func (m Manager) applyLocked(ctx context.Context, g Generation, next Settings, revision uint64) error {
 	unlock, err := lock(ctx, filepath.Join(m.P.Run, "apply.lock"))
 	if err != nil {
 		return err
@@ -96,6 +135,9 @@ func (m Manager) Apply(ctx context.Context, g Generation, next Settings, revisio
 	if err = m.checkpoint("committed"); err != nil {
 		return err
 	}
+	if err = markCommitted(g.Path); err != nil {
+		return err
+	}
 	if err = os.Remove(m.journal()); err != nil {
 		return err
 	}
@@ -105,7 +147,7 @@ func (m Manager) rollbackError(tx Transaction, running bool, cause error) error 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := m.restore(ctx, tx, running); err != nil {
-		return fmt.Errorf("更新失败（%v）；回滚未完成（%v），请运行 clashcli doctor --repair", cause, err)
+		return &rollbackFailure{cause, err}
 	}
 	return fmt.Errorf("更新失败，已恢复原配置: %w", cause)
 }
@@ -174,6 +216,30 @@ func (m Manager) Recover(ctx context.Context, offline bool) error {
 		if err = switchLink(m.P.Current(), tx.NewPath); err != nil {
 			return err
 		}
+		if err = markCommitted(tx.NewPath); err != nil {
+			return err
+		}
+		if !offline && m.Core.Running(ctx) {
+			var next Settings
+			var generation Generation
+			if err = yaml.Unmarshal(tx.NewSettings, &next); err != nil {
+				return err
+			}
+			if err = readJSON(filepath.Join(tx.NewPath, "generation.json"), &generation); err != nil {
+				return err
+			}
+			core := m.Core
+			if real, ok := core.(RealCore); ok {
+				real.S = next
+				core = real
+			}
+			if err = core.Reload(ctx, tx.NewPath); err != nil {
+				return err
+			}
+			if err = core.Check(ctx, generation); err != nil {
+				return err
+			}
+		}
 		return os.Remove(m.journal())
 	}
 	return m.restore(ctx, tx, !offline && m.Core.Running(ctx))
@@ -235,15 +301,11 @@ func updateSubscription(ctx context.Context, p Paths, name string, force bool) e
 		if sub.Generation == "" {
 			return errors.New("收到 304 但本地没有订阅版本，请使用 sub update --force")
 		}
-		return mutateSettings(ctx, p, func(current *Settings) error {
-			v, e := current.Sub(id)
-			if e != nil {
-				return e
-			}
-			v.LastChecked = time.Now().UTC()
-			v.LastError = ""
-			return nil
-		})
+		// A 304 only covers the main document: referenced providers still need updating.
+		d.Body, err = os.ReadFile(filepath.Join(sub.Generation, "source"))
+		if err != nil {
+			return errors.New("缓存订阅原文缺失，请使用 sub update --force")
+		}
 	}
 	g, err := buildGeneration(ctx, p, s, *sub, d.Body)
 	if err != nil {
@@ -258,6 +320,22 @@ func updateSubscription(ctx context.Context, p Paths, name string, force bool) e
 			}
 		}
 	}()
+	if sub.Generation != "" && sameGeneration(sub.Generation, g.Path) {
+		return mutateSettings(ctx, p, func(current *Settings) error {
+			if current.Revision != s.Revision {
+				return errors.New("配置已改变，请重试")
+			}
+			v, e := current.Sub(id)
+			if e != nil {
+				return e
+			}
+			v.LastChecked = time.Now().UTC()
+			v.LastError = ""
+			v.ETag = d.ETag
+			v.Modified = d.Modified
+			return nil
+		})
+	}
 	core := RealCore{p, s}
 	if err = core.Validate(ctx, &g); err != nil {
 		recordUpdateError(p, id, err)
@@ -277,6 +355,9 @@ func updateSubscription(ctx context.Context, p Paths, name string, force bool) e
 				return errors.New("配置在更新期间发生变化，请重试")
 			}
 			*current = s
+			if err := markCommitted(g.Path); err != nil {
+				return err
+			}
 			return nil
 		})
 	}
@@ -328,6 +409,7 @@ func useSubscription(ctx context.Context, p Paths, name string) error {
 	if err != nil {
 		return err
 	}
+	defer discardUncommitted(p, g.Path)
 	sub.Generation = g.Path
 	core := RealCore{p, s}
 	if err = core.Validate(ctx, &g); err != nil {
@@ -359,6 +441,7 @@ func changeTun(ctx context.Context, p Paths, enabled bool) error {
 	if err != nil {
 		return err
 	}
+	defer discardUncommitted(p, g.Path)
 	core := RealCore{p, s}
 	if err = core.Validate(ctx, &g); err != nil {
 		_ = removeGeneration(p, g.Path)
@@ -374,6 +457,13 @@ func changeTun(ctx context.Context, p Paths, enabled bool) error {
 	return err
 }
 func pruneGenerations(p Paths) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	unlock, err := lock(ctx, filepath.Join(p.Run, "apply.lock"))
+	if err != nil {
+		return
+	}
+	defer unlock()
 	if _, err := os.Stat(filepath.Join(p.Data, "transaction.json")); err == nil {
 		return
 	}
@@ -382,10 +472,12 @@ func pruneGenerations(p Paths) {
 		return
 	}
 	keep := map[string]bool{}
+	sources := map[string]bool{}
 	current, _ := os.Readlink(p.Current())
 	keep[current] = true
 	for _, sub := range s.Subscriptions {
 		keep[sub.Generation] = true
+		sources[sub.ID] = true
 	}
 	entries, err := os.ReadDir(filepath.Join(p.Data, "generations"))
 	if err != nil {
@@ -406,6 +498,9 @@ func pruneGenerations(p Paths) {
 		if readJSON(filepath.Join(path, "generation.json"), &g) != nil {
 			continue
 		}
+		if !g.Committed {
+			continue
+		}
 		info, err := e.Info()
 		if err != nil {
 			continue
@@ -416,9 +511,18 @@ func pruneGenerations(p Paths) {
 	counts := map[string]int{}
 	for _, v := range items {
 		counts[v.source]++
-		if counts[v.source] <= 2 || keep[v.path] {
+		if sources[v.source] && counts[v.source] <= 2 || keep[v.path] {
 			continue
 		}
 		_ = removeGeneration(p, v.path)
+	}
+}
+func discardUncommitted(p Paths, path string) {
+	if _, err := os.Stat(filepath.Join(p.Data, "transaction.json")); !errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	var g Generation
+	if readJSON(filepath.Join(path, "generation.json"), &g) == nil && !g.Committed {
+		_ = removeGeneration(p, path)
 	}
 }

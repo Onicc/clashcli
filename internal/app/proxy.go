@@ -121,11 +121,11 @@ func desktopCommand(ctx context.Context, uid int, args ...string) (string, error
 	base = append(base, args...)
 	c := exec.CommandContext(ctx, "runuser", base...)
 	c.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + u.HomeDir, "USER=" + u.Username, "LOGNAME=" + u.Username, "XDG_CONFIG_HOME=" + filepath.Join(u.HomeDir, ".config"), fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/%d", uid), "DBUS_SESSION_BUS_ADDRESS=unix:path=" + bus}
-	var out cappedBuffer
+	var out, stderr cappedBuffer
 	c.Stdout = &out
-	c.Stderr = &out
+	c.Stderr = &stderr
 	if err = c.Run(); err != nil {
-		return "", fmt.Errorf("桌面代理命令 %s 失败: %s", args[0], Redact(out.String()))
+		return "", fmt.Errorf("桌面代理命令 %s 失败: %s", args[0], Redact(stderr.String()))
 	}
 	return strings.TrimSpace(out.String()), nil
 }
@@ -196,7 +196,15 @@ func enableProxy(ctx context.Context, p Paths, s Settings) error {
 	var backup ProxyBackup
 	if err := readJSON(proxyBackup(p), &backup); err == nil {
 		for _, file := range backup.Files {
-			if err = atomicWrite(file.Path, file.After, os.FileMode(file.Mode)); err != nil {
+			content := file.After
+			if current, e := os.ReadFile(file.Path); e == nil {
+				if filepath.Base(file.Path) == "environment" {
+					content = managedEnvironment(current, proxyVariables(s.MixedPort))
+				} else if string(current) != string(file.After) && string(current) != string(file.Before) {
+					return errors.New("登录脚本已被修改；请先 proxy off 保留外部修改，再重试")
+				}
+			}
+			if err = atomicWrite(file.Path, content, os.FileMode(file.Mode)); err != nil {
 				return err
 			}
 		}

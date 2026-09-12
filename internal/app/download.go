@@ -43,12 +43,27 @@ type Download struct {
 }
 
 func download(ctx context.Context, raw string, limit int64, etag, modified string) (Download, error) {
+	return downloadHeaders(ctx, raw, limit, etag, modified, nil)
+}
+func downloadHeaders(ctx context.Context, raw string, limit int64, etag, modified string, headers http.Header) (Download, error) {
 	var result Download
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
 		return result, errors.New("链接必须为不含用户名密码的 HTTP(S) URL")
 	}
 	client := httpClient(40 * time.Second)
+	redirect := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := redirect(req, via); err != nil {
+			return err
+		}
+		if req.URL.Host != via[0].URL.Host || req.URL.Scheme != via[0].URL.Scheme {
+			for key := range headers {
+				req.Header.Del(key)
+			}
+		}
+		return nil
+	}
 	defer client.CloseIdleConnections()
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -63,6 +78,9 @@ func download(ctx context.Context, raw string, limit int64, etag, modified strin
 			return result, errors.New("无效下载链接")
 		}
 		req.Header.Set("User-Agent", "clash.meta/"+strings.TrimPrefix(CoreVersion, "v")+" clashcli")
+		for key, values := range headers {
+			req.Header[key] = append([]string(nil), values...)
+		}
 		if etag != "" {
 			req.Header.Set("If-None-Match", etag)
 		}

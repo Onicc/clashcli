@@ -189,6 +189,11 @@ func (c RealCore) checkOnce(ctx context.Context, g Generation) error {
 	if c.S.Tun && ifaceErr != nil {
 		return errors.New("TUN 网卡未创建")
 	}
+	if c.S.Tun {
+		if _, e := os.Stat("/sys/class/net/clashcli0/tun_flags"); e != nil {
+			return errors.New("clashcli0 不是有效的 TUN 设备")
+		}
+	}
 	if !c.S.Tun && ifaceErr == nil {
 		return errors.New("关闭 TUN 后网卡仍存在")
 	}
@@ -290,8 +295,8 @@ func (c RealCore) Validate(ctx context.Context, g *Generation) error {
 	if err = child.Start(); err != nil {
 		return err
 	}
-	done := make(chan error, 1)
-	go func() { done <- child.Wait() }()
+	done := make(chan struct{})
+	go func() { _ = child.Wait(); close(done) }()
 	defer func() {
 		_ = child.Process.Signal(syscall.SIGTERM)
 		select {
@@ -302,18 +307,36 @@ func (c RealCore) Validate(ctx context.Context, g *Generation) error {
 		}
 	}()
 	api := API{Socket: filepath.Join(probe, "api.sock")}
+	var lastErr error
 	for {
+		logs := output.String()
+		if (strings.Contains(logs, "initial proxy provider") || strings.Contains(logs, "initial rule provider")) && strings.Contains(logs, " error:") {
+			return fmt.Errorf("provider 预检失败: %s", safeCoreOutput(logs))
+		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("候选内核预检超时: %s", safeCoreOutput(output.String()))
+			return fmt.Errorf("候选内核预检超时: %v; %s", lastErr, safeCoreOutput(output.String()))
+		case <-done:
+			return fmt.Errorf("候选内核提前退出: %s", safeCoreOutput(output.String()))
 		default:
 		}
 		expected, e := api.Snapshot(ctx)
+		if e == nil && !candidateReady(doc, expected) {
+			e = errors.New("候选节点或规则仍在初始化")
+		}
+		if e == nil && g.URICount > 0 && expected.ProxyProviders["subscription"] != g.URICount {
+			e = errors.New("分享链接解析数量不一致，拒绝静默丢弃节点")
+		}
 		if e == nil {
-			// The provider API excludes file-backed proxy names from /proxies, so check counts independently.
-			if g.URICount > 0 && expected.ProxyProviders["subscription"] != g.URICount {
-				return errors.New("分享链接解析数量不一致，拒绝静默丢弃节点")
+			for name, count := range g.ProviderURICounts {
+				if expected.ProxyProviders[name] != count {
+					e = errors.New("provider 分享链接解析数量不一致，拒绝静默丢弃节点")
+					break
+				}
 			}
+		}
+		lastErr = e
+		if e == nil {
 			if strings.Contains(output.String(), "initial proxy provider") && strings.Contains(output.String(), " error:") {
 				return fmt.Errorf("provider 预检失败: %s", safeCoreOutput(output.String()))
 			}
@@ -322,10 +345,43 @@ func (c RealCore) Validate(ctx context.Context, g *Generation) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("候选配置依赖加载失败: %s", safeCoreOutput(output.String()))
+			return fmt.Errorf("候选配置依赖加载失败: %v; %s", lastErr, safeCoreOutput(output.String()))
+		case <-done:
+			return fmt.Errorf("候选内核提前退出: %s", safeCoreOutput(output.String()))
 		case <-time.After(150 * time.Millisecond):
 		}
 	}
+}
+func candidateReady(doc Document, e Expectation) bool {
+	if rules, ok := doc["rules"].([]any); ok && len(rules) != e.Rules {
+		return false
+	}
+	names := map[string]bool{}
+	for _, name := range e.Proxies {
+		names[name] = true
+	}
+	for _, section := range []string{"proxies", "proxy-groups"} {
+		if entries, ok := doc[section].([]any); ok {
+			for _, raw := range entries {
+				if value, ok := raw.(map[string]any); ok {
+					name, _ := value["name"].(string)
+					if !names[name] {
+						return false
+					}
+				}
+			}
+		}
+	}
+	for section, counts := range map[string]map[string]int{"proxy-providers": e.ProxyProviders, "rule-providers": e.RuleProviders} {
+		if providers, ok := doc[section].(map[string]any); ok {
+			for name := range providers {
+				if counts[name] == 0 {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 func safeCoreOutput(s string) string {
 	lines := []string{}

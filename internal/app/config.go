@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,11 +17,13 @@ import (
 
 type Document = map[string]any
 type Generation struct {
-	Path     string      `json:"path"`
-	SourceID string      `json:"source_id"`
-	Format   string      `json:"format"`
-	URICount int         `json:"uri_count"`
-	Expected Expectation `json:"expected"`
+	Path              string         `json:"path"`
+	SourceID          string         `json:"source_id"`
+	Format            string         `json:"format"`
+	URICount          int            `json:"uri_count"`
+	ProviderURICounts map[string]int `json:"provider_uri_counts,omitempty"`
+	Expected          Expectation    `json:"expected"`
+	Committed         bool           `json:"committed"`
 }
 type Expectation struct {
 	Proxies        []string       `json:"proxies"`
@@ -155,7 +159,7 @@ func buildGeneration(ctx context.Context, p Paths, s Settings, sub Subscription,
 			_ = removeGeneration(p, dir)
 		}
 	}()
-	g = Generation{Path: dir, SourceID: sub.ID, Format: format, URICount: count}
+	g = Generation{Path: dir, SourceID: sub.ID, Format: format, URICount: count, ProviderURICounts: map[string]int{}}
 	if err = atomicWrite(filepath.Join(dir, "source"), raw, 0600); err != nil {
 		return g, err
 	}
@@ -173,9 +177,12 @@ func buildGeneration(ctx context.Context, p Paths, s Settings, sub Subscription,
 				filtered[k] = v
 			}
 		}
+		if err = rejectLocalCredentials(filtered); err != nil {
+			return g, err
+		}
 		doc = filtered
 		for _, section := range []string{"proxy-providers", "rule-providers"} {
-			if err = materializeProviders(ctx, doc, section, dir); err != nil {
+			if err = materializeProviders(ctx, doc, section, dir, g.ProviderURICounts); err != nil {
 				return g, err
 			}
 		}
@@ -237,7 +244,38 @@ func buildGeneration(ctx context.Context, p Paths, s Settings, sub Subscription,
 	success = true
 	return g, nil
 }
-func materializeProviders(ctx context.Context, doc Document, section, dir string) error {
+
+// Remote proxy definitions may contain inline keys, but must not read root's local credentials.
+func rejectLocalCredentials(value any) error {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, raw := range v {
+			if key == "private-key-path" || key == "certificate-path" || key == "ca-file" || key == "ca-path" {
+				return errors.New("远程订阅不能引用本机证书或私钥文件")
+			}
+			if key == "private-key" || key == "certificate" {
+				str, ok := raw.(string)
+				if ok && str != "" && !strings.Contains(str, "-----BEGIN ") {
+					decoded, e := base64.StdEncoding.DecodeString(str)
+					if key != "private-key" || e != nil || len(decoded) != 32 {
+						return errors.New("远程订阅的证书或私钥必须内嵌，不能引用本机文件")
+					}
+				}
+			}
+			if err := rejectLocalCredentials(raw); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, raw := range v {
+			if err := rejectLocalCredentials(raw); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+func materializeProviders(ctx context.Context, doc Document, section, dir string, counts map[string]int) error {
 	value, exists := doc[section]
 	if !exists {
 		return nil
@@ -259,11 +297,64 @@ func materializeProviders(ctx context.Context, doc Document, section, dir string
 			return errors.New("远程订阅中的 provider 必须使用 http 或 inline 类型")
 		}
 		u, _ := provider["url"].(string)
-		d, err := download(ctx, u, maxSubscription, "", "")
+		headers := http.Header{}
+		if fields, ok := provider["header"].(map[string]any); ok {
+			for key, raw := range fields {
+				switch values := raw.(type) {
+				case string:
+					headers.Add(key, values)
+				case []any:
+					for _, value := range values {
+						str, ok := value.(string)
+						if !ok {
+							return errors.New("provider header 必须为字符串列表")
+						}
+						headers.Add(key, str)
+					}
+				default:
+					return errors.New("provider header 必须为字符串列表")
+				}
+			}
+		}
+		d, err := downloadHeaders(ctx, u, maxSubscription, "", "", headers)
 		if err != nil {
 			return fmt.Errorf("%s 依赖下载失败: %w", section, err)
 		}
-		path := filepath.Join(dir, "provider-"+randomID(8))
+		if section == "proxy-providers" {
+			nodes, format, count, e := parseSubscription(d.Body)
+			if e != nil {
+				return fmt.Errorf("节点 provider 无效: %w", e)
+			}
+			if e = rejectLocalCredentials(nodes); e != nil {
+				return e
+			}
+			if format != "yaml" {
+				counts[name] = count
+				d.Body = normalizedURIs(d.Body, format)
+			}
+		}
+		// mihomo's streaming rule parser expects block YAML, not flow-style payloads.
+		if section == "rule-providers" && (provider["format"] == nil || provider["format"] == "yaml") {
+			var rules struct {
+				Payload []string `yaml:"payload"`
+				Rules   []string `yaml:"rules"`
+			}
+			if err = yaml.Unmarshal(d.Body, &rules); err != nil {
+				return errors.New("规则 provider YAML 无效")
+			}
+			if len(rules.Payload) == 0 {
+				rules.Payload = rules.Rules
+			}
+			if len(rules.Payload) == 0 {
+				return errors.New("规则 provider payload 为空")
+			}
+			d.Body, err = yaml.Marshal(map[string]any{"payload": rules.Payload})
+			if err != nil {
+				return err
+			}
+		}
+		hash := sha256.Sum256([]byte(section + "\x00" + name))
+		path := filepath.Join(dir, fmt.Sprintf("provider-%x", hash[:8]))
 		if err = atomicWrite(path, d.Body, 0600); err != nil {
 			return err
 		}
@@ -334,11 +425,50 @@ func cloneGeneration(p Paths, s Settings, from string) (Generation, error) {
 		return old, err
 	}
 	old.Path = dir
+	old.Committed = false
 	if err = writeJSON(filepath.Join(dir, "generation.json"), old); err != nil {
 		return old, err
 	}
 	success = true
 	return old, nil
+}
+
+func sameGeneration(a, b string) bool {
+	entriesA, err := os.ReadDir(a)
+	if err != nil {
+		return false
+	}
+	entriesB, err := os.ReadDir(b)
+	if err != nil || len(entriesA) != len(entriesB) {
+		return false
+	}
+	for _, entry := range entriesA {
+		if entry.Name() == "generation.json" {
+			continue
+		}
+		left, e1 := os.ReadFile(filepath.Join(a, entry.Name()))
+		right, e2 := os.ReadFile(filepath.Join(b, entry.Name()))
+		if e1 != nil || e2 != nil {
+			return false
+		}
+		if entry.Name() == "config.yaml" {
+			left = []byte(strings.ReplaceAll(string(left), a, "<GENERATION>"))
+			right = []byte(strings.ReplaceAll(string(right), b, "<GENERATION>"))
+		}
+		if sha256.Sum256(left) != sha256.Sum256(right) {
+			return false
+		}
+	}
+	return true
+}
+
+func markCommitted(path string) error {
+	var g Generation
+	if err := readJSON(filepath.Join(path, "generation.json"), &g); err != nil {
+		return err
+	}
+	g.Committed = true
+	return writeJSON(filepath.Join(path, "generation.json"), g)
 }
 func sortedKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))

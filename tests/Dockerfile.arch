@@ -1,0 +1,9 @@
+FROM archlinux:base
+ENV container=docker
+# QEMU user-mode cannot apply pacman's syscall sandbox; the build itself is isolated.
+RUN pacman -Syu --noconfirm --disable-sandbox systemd dbus iproute2 iptables-nft nftables curl \
+    ca-certificates python python-yaml python-gobject glib2 dconf \
+    glib-networking gsettings-desktop-schemas kconfig sudo openssh shadow \
+    && pacman -Scc --noconfirm
+STOPSIGNAL SIGRTMIN+3
+CMD ["/usr/lib/systemd/systemd"]
