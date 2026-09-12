@@ -43,8 +43,9 @@ def main():
     token = "clashcli-test-" + uuid.uuid4().hex[:10]
     image, builder, network = token + ":linux", token + "-builder", token + "-net"
     subject, fixture = token + "-subject", token + "-fixture"
-    temp = pathlib.Path(tempfile.mkdtemp(prefix="clashcli-test-"))
+    # Fail before allocating resources when Docker is unavailable.
     baseline = {kind: set(run(["docker", kind, "ls", "-q"]).stdout.decode().split()) for kind in ["container", "image", "volume", "network"]}
+    temp = pathlib.Path(tempfile.mkdtemp(prefix="clashcli-test-"))
     containers = []
     built, builder_created, network_created = False, False, False
     cleanup_errors = []
