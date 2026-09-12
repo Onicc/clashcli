@@ -109,6 +109,8 @@ func originalUser() (int, string) {
 	return uid, ""
 }
 func desktopCommand(ctx context.Context, uid int, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	u, err := user.LookupId(strconv.Itoa(uid))
 	if err != nil {
 		return "", err
@@ -366,11 +368,13 @@ func proxyActual(ctx context.Context, p Paths) (map[string]any, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	result := map[string]any{"managed": true, "environment": false, "desktop": "none"}
+	result := map[string]any{"managed": true, "environment": false, "login_script": false, "desktop": "none"}
 	for _, f := range b.Files {
 		current, err := os.ReadFile(f.Path)
 		if err == nil && filepath.Base(f.Path) == "environment" {
-			result["environment"] = string(current) == string(f.After)
+			result["environment"] = proxyEnvironmentMatches(current, f.After)
+		} else if err == nil && filepath.Base(f.Path) == "clashcli.sh" {
+			result["login_script"] = string(current) == string(f.After)
 		}
 	}
 	if len(b.Desktop) > 0 {
@@ -384,4 +388,24 @@ func proxyActual(ctx context.Context, p Paths) (map[string]any, error) {
 		result["desktop"] = valid
 	}
 	return result, nil
+}
+
+func proxyEnvironmentMatches(current, after []byte) bool {
+	wanted := map[string]string{}
+	for _, line := range strings.Split(string(after), "\n") {
+		if key := envKey(line); proxyVariables(7890)[key] != "" {
+			wanted[key] = strings.TrimSpace(line)
+		}
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(current), "\n") {
+		key := envKey(line)
+		if value, ok := wanted[key]; ok {
+			if seen[key] || strings.TrimSpace(line) != value {
+				return false
+			}
+			seen[key] = true
+		}
+	}
+	return len(wanted) == len(proxyVariables(7890)) && len(seen) == len(wanted)
 }

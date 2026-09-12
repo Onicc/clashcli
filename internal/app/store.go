@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -216,20 +217,17 @@ func removeGeneration(p Paths, path string) error {
 
 var urlPattern = regexp.MustCompile(`(?i)(?:https?|socks5h?)://[^\s<>"']+`)
 var credentialPattern = regexp.MustCompile(`(?i)(token|password|passwd|secret|authorization|uuid)(["']?\s*[:=]\s*["']?)[^\s,"'}]+`)
-var sharePattern = regexp.MustCompile(`(?i)(?:ss|ssr|vmess|vless|trojan|hysteria2?|hy2|tuic|anytls|mierus)://[^\s<>"']+`)
+var sharePattern = regexp.MustCompile(`(?i)(?:ss|ssr|vmess|vless|trojan|hysteria2?(?:\+realm)?|hy2(?:\+realm)?|tuic|anytls|mierus)://[^\s<>"']+`)
 
 func Redact(s string) string {
 	s = sharePattern.ReplaceAllString(s, "[REDACTED SHARE LINK]")
 	s = urlPattern.ReplaceAllStringFunc(s, func(v string) string {
-		if i := strings.Index(v, "?"); i >= 0 {
-			v = v[:i] + "?[REDACTED]"
+		// Subscription credentials can be in a path or fragment, not just a query.
+		u, err := url.Parse(v)
+		if err != nil || u.Host == "" {
+			return "[REDACTED URL]"
 		}
-		if i := strings.Index(v, "@"); i >= 0 {
-			if j := strings.Index(v, "://"); j >= 0 {
-				v = v[:j+3] + "[REDACTED]@" + v[i+1:]
-			}
-		}
-		return v
+		return u.Scheme + "://" + u.Host + "/[REDACTED]"
 	})
 	return credentialPattern.ReplaceAllString(s, "${1}${2}[REDACTED]")
 }

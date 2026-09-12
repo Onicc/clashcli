@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
-      - run: make test check release VERSION="$GITHUB_REF_NAME"
+      - run: make test check audit release VERSION="$GITHUB_REF_NAME"
       - run: tar -czf dist/licenses.tar.gz LICENSE THIRD_PARTY_NOTICES.md third_party/licenses
       - name: Checksums
         working-directory: dist

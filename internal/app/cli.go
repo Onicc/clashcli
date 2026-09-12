@@ -731,6 +731,11 @@ func showLogs(ctx context.Context, follow bool, since string, n int) error {
 		fmt.Println(Redact(scanner.Text()))
 	}
 	scanErr := scanner.Err()
+	if scanErr != nil {
+		// A scanner limit error stops draining stdout. Kill the producer before
+		// waiting, otherwise journalctl can block forever on the full pipe.
+		_ = c.Process.Kill()
+	}
 	err = c.Wait()
 	if scanErr != nil {
 		return scanErr
@@ -866,12 +871,12 @@ func doctor(ctx context.Context, p Paths, repair bool) error {
 			return err
 		}
 		if !(RealCore{p, s}).Running(ctx) {
-			if err = disableProxy(ctx, p); err != nil {
-				return err
-			}
 			if err = startService(ctx, p); err != nil {
 				return err
 			}
+		}
+		if err = changeProxy(ctx, p, s.Proxy); err != nil {
+			return err
 		}
 	}
 	failures := []error{}
@@ -882,12 +887,23 @@ func doctor(ctx context.Context, p Paths, repair bool) error {
 			failures = append(failures, e)
 		}
 	}
-	for _, path := range []string{"/run/systemd/system", "/dev/net/tun", p.Core(), filepath.Join(p.Current(), "config.yaml"), filepath.Join(p.Data, "ui/current/index.html")} {
+	for _, path := range []string{"/run/systemd/system", p.Core(), filepath.Join(p.Current(), "config.yaml"), filepath.Join(p.Data, "ui/current/index.html")} {
 		_, e := os.Stat(path)
 		fmt.Printf("%s: %t\n", path, e == nil)
 		if e != nil {
 			failures = append(failures, e)
 		}
+	}
+	if _, e := os.Stat("/dev/net/tun"); e != nil {
+		fmt.Println("/dev/net/tun: 不可用（仅开启 TUN 时需要）")
+		if s.Tun {
+			failures = append(failures, e)
+		}
+	} else {
+		fmt.Println("/dev/net/tun: true")
+	}
+	if e := checkHealth(ctx, p, s); e != nil {
+		failures = append(failures, e)
 	}
 	if _, e := os.Stat(filepath.Join(p.Data, "transaction.json")); e == nil {
 		failures = append(failures, errors.New("存在未完成事务"))
@@ -896,6 +912,28 @@ func doctor(ctx context.Context, p Paths, repair bool) error {
 		failures = append(failures, e)
 	}
 	return errors.Join(failures...)
+}
+
+// A status report is informative even when stopped; doctor is a health check
+// with a meaningful exit code for automation.
+func checkHealth(ctx context.Context, p Paths, s Settings) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var g Generation
+	if err := readJSON(filepath.Join(p.Current(), "generation.json"), &g); err != nil {
+		return fmt.Errorf("活动版本记录不可读: %w", err)
+	}
+	if err := (RealCore{p, s}).checkOnce(ctx, g); err != nil {
+		return fmt.Errorf("内核未运行或实际配置不健康: %w", err)
+	}
+	actual, err := proxyActual(ctx, p)
+	if err != nil {
+		return err
+	}
+	if actual["managed"] != s.Proxy || s.Proxy && (actual["environment"] != true || actual["login_script"] != true || actual["desktop"] == false) {
+		return errors.New("系统代理实际状态与保存偏好不一致；请运行 clashcli doctor --repair")
+	}
+	return nil
 }
 func rollbackPrevious(ctx context.Context, p Paths) error {
 	s, err := loadSettings(p)

@@ -6,15 +6,19 @@
 
 需要 **systemd、sudo/root 权限、amd64 或 arm64 Linux**。支持 Debian、Ubuntu、Fedora、Arch。普通代理不需要 TUN 设备；TUN 需要 `/dev/net/tun` 和网络管理权限。
 
-从 [Releases](https://github.com/Onicc/clashcli/releases) 下载对应架构的 `clashcli-linux-*`，验证同版本 `SHA256SUMS` 后安装：
+通过本仓库的安装脚本安装最新稳定版（需要 `curl` 和 `coreutils`）：
 
 ```sh
-sudo install -m 0755 clashcli-linux-amd64 /usr/local/bin/clashcli
+curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Onicc/clashcli/main/install.sh | sh
 clashcli init
 clashcli
 ```
 
-也可在 Linux 上使用 Go 1.25+ 从源码安装：
+脚本自动识别 amd64/arm64，校验同一发行版本的 SHA-256 后，原子安装到 `/usr/local/bin/clashcli`；普通用户会按需请求 sudo。重复运行即可升级 CLI，失败保留旧程序，不修改订阅、代理设置或正在运行的内核。只安装程序，不自动运行初始化。
+
+可先[查看安装脚本](install.sh)再执行；指定版本时，在末尾使用 `sh -s -- --version v0.1.1`。无法访问 GitHub 时，可从 [Releases](https://github.com/Onicc/clashcli/releases) 手动下载对应架构的程序与 `SHA256SUMS`，校验后执行 `sudo install -m 0755 clashcli-linux-amd64 /usr/local/bin/clashcli`。
+
+也可在 Linux 上使用 Go 1.26.8+ 从源码安装：
 
 ```sh
 git clone https://github.com/Onicc/clashcli.git

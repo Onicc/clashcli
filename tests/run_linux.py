@@ -75,6 +75,9 @@ def main():
         run(["docker", "create", "--platform", options.platform, "--name", subject, "--label", "io.clashcli.test=" + token, "--network", network, "--ip", "10.231.78.3", "--privileged", "--cgroupns=private", "--tmpfs", "/run", "--tmpfs", "/run/lock", "--tmpfs", "/tmp", *publish, image])
         containers.append(subject)
         run(["docker", "start", subject])
+        run(["docker", "cp", str(REPO / "install.sh"), subject + ":/install.sh"])
+        run(["docker", "cp", str(REPO / "tests/install_linux.py"), subject + ":/install_linux.py"])
+        print(run(["docker", "exec", "-e", "CLASHCLI_INSTALL_TEST_CONTAINER=1", subject, "python3", "/install_linux.py"], timeout=1500).stdout.decode(), flush=True)
         run(["docker", "cp", str(binary), subject + ":/usr/local/bin/clashcli"])
         run(["docker", "cp", str(REPO / "tests/inside_linux.py"), subject + ":/inside_linux.py"])
         ready = False

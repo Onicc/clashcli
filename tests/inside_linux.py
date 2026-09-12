@@ -95,6 +95,16 @@ assert status()["core_running"]
 assert not status()["desired"]["system_proxy"] and not status()["tun_interface"]
 passed("failed-init recovery, verified downloads, systemd start, actual config")
 
+cli("doctor")
+# Missing TUN is not a fault for ordinary proxy mode.
+tun_device = pathlib.Path("/dev/net/tun")
+tun_device.rename("/dev/net/clashcli-test-tun")
+try:
+    cli("doctor")
+finally:
+    pathlib.Path("/dev/net/clashcli-test-tun").rename(tun_device)
+passed("doctor accepts healthy ordinary proxy without a TUN device")
+
 for path in ["/etc/clashcli/config.yaml", "/var/lib/clashcli/current/source"]:
     assert os.stat(path).st_mode & 0o077 == 0
 with CLIENT.open("http://127.0.0.1:9090/ui/", timeout=10) as r:
@@ -157,6 +167,17 @@ assert b"http_proxy='http://127.0.0.1:7890'" in pathlib.Path("/etc/profile.d/cla
 env = run(["su", "-", "fixtureuser", "-c", "env"]).stdout
 assert b"http_proxy=http://127.0.0.1:7890" in env
 assert b"CLASHCLI_TEST_SENTINEL=preserved" in pathlib.Path("/etc/environment").read_bytes()
+with pathlib.Path("/etc/environment").open("a") as environment:
+    environment.write("CLASHCLI_UNRELATED=kept\n")
+assert status()["system_proxy"]["environment"]
+cli("doctor")
+pathlib.Path("/etc/environment").write_text(pathlib.Path("/etc/environment").read_text().replace("CLASHCLI_UNRELATED=kept\n", ""))
+pathlib.Path("/etc/profile.d/clashcli.sh").unlink()
+assert not status()["system_proxy"]["login_script"]
+assert cli("doctor", ok=False).returncode != 0
+cli("doctor", "--repair")
+assert status()["system_proxy"]["login_script"]
+passed("proxy status ignores unrelated edits; doctor detects and repairs missing login script")
 cli("proxy", "on")
 cli("proxy", "off")
 assert pathlib.Path("/etc/environment").read_bytes() == original_env
@@ -285,6 +306,7 @@ passed("real systemd calendar-triggered update")
 
 cli("proxy", "on")
 cli("stop")
+assert cli("doctor", ok=False).returncode != 0
 assert pathlib.Path("/etc/environment").read_bytes() == original_env
 assert not status()["core_running"]
 cli("start")

@@ -4,6 +4,8 @@
 
 ```sh
 make test check
+make audit                  # 固定版本 govulncheck；需访问官方漏洞数据库
+python3 tests/test_install.py # 离线安装器成功/失败用例；不写入宿主系统目录
 go test ./internal/app -run '^$' -fuzz FuzzSubscriptionParser -fuzztime 20s
 make release
 python3 tests/run_linux.py
@@ -19,6 +21,8 @@ Docker 需已经运行。原生 Linux 主机通常只支持自身架构；另一
 单元测试覆盖格式识别、下载边界、配置管理字段、provider 文件快照、事务各阶段故障、竞态冲突、原代理恢复、路径安全、日志脱敏及私密 JSON 字段。
 
 Linux 测试使用真实 systemd、mihomo、D-Bus/GSettings 和 KDE 工具。测试网络内提供订阅源、规则源、HTTP 目标、SOCKS5 TCP/UDP 代理及 DNS 服务，验证流量而不依赖公网节点。包含安装、API 认证、代理持久化、候选校验失败、原子重载、TUN、订阅切换、定时任务、异常重启和卸载。
+
+每个 Linux 容器先执行真实 HTTPS 发行版安装：固定版本、普通用户 sudo 升级、旧文件描述符仍可用、权限与临时文件清理；此步骤需要能访问 GitHub Releases。之后替换为本次构建的 CLI 执行功能回归。安装器离线测试另覆盖篡改、错误清单、下载/权限/写入/重命名失败与旧程序保留。
 
 还覆盖真实 TUN 权限失败回滚、IPv6、SSH 转发、GNOME 感知型 GIO 客户端、并发更新及保留配置重装。`--coverage` 构建临时插桩 CLI，汇总真实 Linux 命令的代码覆盖率，然后删除二进制和覆盖率数据。
 

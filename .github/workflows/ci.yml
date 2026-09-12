@@ -16,7 +16,8 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
-      - run: make test check release
+      - run: make test check release audit
+      - run: shellcheck install.sh
       - run: go test ./internal/app -run '^$' -fuzz FuzzSubscriptionParser -fuzztime 20s
   linux:
     runs-on: ubuntu-latest

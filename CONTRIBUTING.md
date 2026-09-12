@@ -1,6 +1,6 @@
 # Contributing
 
-Use Go 1.25 or newer. Run `make test check` before submitting changes. Changes to service management, proxy settings, subscriptions, or recovery also require `make e2e` with Docker.
+Use Go 1.26.8 or newer. Run `make test check audit` before submitting changes (Python 3 is required for installer tests). Changes to service management, proxy settings, subscriptions, or recovery also require `make e2e` with Docker.
 
 Keep the CLI and interactive menu on the same implementation path. Persist settings through atomic writes; preserve existing proxy values and unrelated user changes. New subscription formats must be tested against the pinned mihomo binary, not just a format detector.
 
