@@ -3,9 +3,9 @@
 ## 安装与升级
 
 ```sh
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Onicc/clashcli/main/install.sh | sh
+curl -q -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Onicc/clashcli/main/install.sh | sh
 # 固定版本（也可用于手动降级 CLI）：
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Onicc/clashcli/main/install.sh | sh -s -- --version v0.1.1
+curl -q -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Onicc/clashcli/main/install.sh | sh -s -- --version v0.1.1
 ```
 
 安装脚本只管理 `/usr/local/bin/clashcli`，不自动初始化、重启内核或升级独立组件，不覆盖订阅、配置和开关偏好。下载失败、校验失败或替换失败时保留旧 CLI。脚本拒绝覆盖同名符号链接、目录或设备文件；请先自行确认旧安装来源。

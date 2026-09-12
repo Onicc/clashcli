@@ -15,7 +15,7 @@ main() {
             -h|--help)
                 printf '%s\n' 'Usage: sh install.sh [--version vX.Y.Z]' \
                     'Install/upgrade clashcli in /usr/local/bin. Default: latest stable release.' \
-                    'Requires Linux amd64/arm64, curl, coreutils, and root or sudo.' \
+                    'Requires Linux amd64/arm64, curl 7.71+, coreutils, and root or sudo.' \
                     'No subscriptions, services, proxy settings, or core binaries are changed.'
                 return
                 ;;

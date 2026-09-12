@@ -9,7 +9,7 @@
 通过本仓库的安装脚本安装最新稳定版（需要 `curl` 7.71+ 和 `coreutils`）：
 
 ```sh
-curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Onicc/clashcli/main/install.sh | sh
+curl -q -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Onicc/clashcli/main/install.sh | sh
 clashcli init
 clashcli
 ```
