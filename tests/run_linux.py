@@ -88,7 +88,7 @@ def main():
         print("TEST systemd ready; installing and exercising real mihomo", flush=True)
         # Stream test progress. Live URLs enter the child over stdin only.
         run(["docker", "exec", subject, "mkdir", "-p", "/tmp/clashcli-coverage"])
-        proc = subprocess.Popen(["docker", "exec", "-i", "-e", "GOCOVERDIR=/tmp/clashcli-coverage", "-e", "CLASHCLI_UI_REVIEW=" + str(int(options.ui_review)), subject, "python3", "-u", "/inside_linux.py"], stdin=subprocess.PIPE)
+        proc = subprocess.Popen(["docker", "exec", "-i", "-e", "GOCOVERDIR=/tmp/clashcli-coverage", "-e", "CLASHCLI_UI_REVIEW=" + str(int(options.ui_review)), "-e", "GITHUB_ACTIONS=" + os.environ.get("GITHUB_ACTIONS", ""), subject, "python3", "-u", "/inside_linux.py"], stdin=subprocess.PIPE)
         try:
             proc.communicate(json.dumps(live).encode(), timeout=1800)
         except BaseException:
@@ -127,4 +127,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print("::error::" + str(error)[-8000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"), flush=True)
+        raise

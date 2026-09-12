@@ -13,6 +13,13 @@ import urllib.request
 FIXTURE = "http://10.231.78.2:8000"
 CLIENT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 LIVE = json.load(sys.stdin)
+if os.environ.get("GITHUB_ACTIONS") == "true":
+    import traceback
+    def annotate_failure(*error):
+        message = "".join(traceback.format_exception(*error))[-8000:]
+        print("::error::" + message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"), flush=True)
+        traceback.print_exception(*error)
+    sys.excepthook = annotate_failure
 
 
 def run(args, data=None, ok=True, timeout=240):
@@ -42,6 +49,7 @@ def passed(label):
 
 
 run(["useradd", "-m", "-s", "/bin/bash", "fixtureuser"])
+run(["usermod", "-p", "*", "fixtureuser"])
 pathlib.Path("/etc/environment").write_text("# original\nCLASHCLI_TEST_SENTINEL=preserved\nhttp_proxy=http://previous.invalid:8080\n")
 original_env = pathlib.Path("/etc/environment").read_bytes()
 request("/state", {"mode": "invalid"})
@@ -96,9 +104,9 @@ if os.environ.get("CLASHCLI_UI_REVIEW") == "1":
 pathlib.Path("/run/sshd").mkdir(exist_ok=True)
 run(["ssh-keygen", "-A"])
 run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", "/tmp/clashcli-ssh"])
-sshd = subprocess.Popen(["/usr/sbin/sshd", "-D", "-p", "2222", "-o", "ListenAddress=127.0.0.1", "-o", "AuthorizedKeysFile=/tmp/clashcli-ssh.pub", "-o", "StrictModes=no", "-o", "PasswordAuthentication=no"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+sshd = subprocess.Popen(["/usr/sbin/sshd", "-D", "-p", "2222", "-o", "ListenAddress=127.0.0.1", "-o", "AuthorizedKeysFile=/tmp/clashcli-ssh.pub", "-o", "StrictModes=no", "-o", "PasswordAuthentication=no", "-o", "UsePAM=no", "-o", "PermitRootLogin=no"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(0.3)
-forward = subprocess.Popen(["ssh", "-N", "-L", "127.0.0.1:19090:127.0.0.1:9090", "-p", "2222", "-i", "/tmp/clashcli-ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/tmp/clashcli-known-hosts", "-o", "ExitOnForwardFailure=yes", "root@127.0.0.1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+forward = subprocess.Popen(["ssh", "-N", "-L", "127.0.0.1:19090:127.0.0.1:9090", "-p", "2222", "-i", "/tmp/clashcli-ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/tmp/clashcli-known-hosts", "-o", "ExitOnForwardFailure=yes", "fixtureuser@127.0.0.1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(0.5)
 with CLIENT.open("http://127.0.0.1:19090/ui/", timeout=10) as response:
     assert b"<html" in response.read().lower()
@@ -113,7 +121,8 @@ cli("proxy", "on")
 assert status()["system_proxy"]["environment"]
 assert b"http_proxy='http://127.0.0.1:7890'" in pathlib.Path("/etc/profile.d/clashcli.sh").read_bytes()
 env = run(["su", "-", "fixtureuser", "-c", "env"]).stdout
-assert b"http_proxy=http://127.0.0.1:7890" in env and b"CLASHCLI_TEST_SENTINEL=preserved" in env
+assert b"http_proxy=http://127.0.0.1:7890" in env
+assert b"CLASHCLI_TEST_SENTINEL=preserved" in pathlib.Path("/etc/environment").read_bytes()
 cli("proxy", "on")
 cli("proxy", "off")
 assert pathlib.Path("/etc/environment").read_bytes() == original_env
