@@ -3,7 +3,7 @@ ENV container=docker
 RUN dnf install -y systemd dbus-daemon iproute iptables nftables curl-minimal \
     ca-certificates python3 python3-pyyaml python3-gobject glib2 dconf \
     glib-networking gsettings-desktop-schemas kf6-kconfig sudo openssh-server \
-    util-linux passwd shadow-utils strace && dnf clean all
+    util-linux passwd shadow-utils && dnf clean all
 RUN dnf install -y openssh-clients && dnf clean all
 STOPSIGNAL SIGRTMIN+3
 CMD ["/usr/lib/systemd/systemd"]

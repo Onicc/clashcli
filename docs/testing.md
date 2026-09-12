@@ -24,6 +24,8 @@ Linux 测试使用真实 systemd、mihomo、D-Bus/GSettings 和 KDE 工具。测
 
 每个 Linux 容器先执行真实 HTTPS 发行版安装：固定版本、普通用户 sudo 升级、旧文件描述符仍可用、权限与临时文件清理；此步骤需要能访问 GitHub Releases。之后替换为本次构建的 CLI 执行功能回归。安装器离线测试另覆盖篡改、错误清单、下载/权限/写入/重命名失败与旧程序保留。
 
+Fedora 容器的 sudo 用例需兼容 [Ubuntu 宿主 AppArmor 的已知 unix-chkpwd 限制](https://gitlab.com/apparmor/apparmor/-/issues/402)：仅在该临时用例内，将容器的 `/etc/shadow` 从 `0000` 改为 root 专用的 `0600`，随后恢复原权限。不会修改宿主 AppArmor、PAM 策略或实际用户系统；正式安装脚本也没有这项操作。完整代理回归在恢复 Fedora 原权限后执行。
+
 还覆盖真实 TUN 权限失败回滚、IPv6、SSH 转发、GNOME 感知型 GIO 客户端、并发更新及保留配置重装。`--coverage` 构建临时插桩 CLI，汇总真实 Linux 命令的代码覆盖率，然后删除二进制和覆盖率数据。
 
 人工浏览器验收可使用 `--ui-review`，仅将测试夹具的面板临时映射到本机回环端口 9090。验证结束后在本次 subject 容器中执行 `touch /run/clashcli/ui-review-done` 继续测试；最多等待 10 分钟，随后关闭桥接服务。此阶段在任何真实订阅导入之前运行。

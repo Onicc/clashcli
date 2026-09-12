@@ -2,9 +2,7 @@
 import os
 import pathlib
 import pwd
-import shutil
 import subprocess
-import time
 
 
 def run(args):
@@ -15,18 +13,7 @@ def run(args):
         journal = subprocess.run(["journalctl", "--no-pager", "-t", "sudo", "-n", "15"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
         helper = subprocess.run(["journalctl", "--no-pager", "_COMM=unix_chkpwd", "-n", "15"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
         capabilities = "\n".join(line for line in pathlib.Path("/proc/self/status").read_text().splitlines() if line.startswith(("Cap", "NoNewPrivs")))
-        identity = []
-        for lookup in [["getent", "shadow", "clashcli-installer-test"], ["getent", "-s", "files", "shadow", "clashcli-installer-test"], ["/usr/sbin/unix_chkpwd", "clashcli-installer-test", "chkexpiry"]]:
-            if pathlib.Path(lookup[0]).is_absolute() and not pathlib.Path(lookup[0]).exists():
-                continue
-            probe = subprocess.run(lookup, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
-            # Never log shadow records, even for this disposable user.
-            identity.append(" ".join(lookup) + f": exit={probe.returncode}, records={len(probe.stdout.splitlines())}")
-        trace_text = ""
-        if shutil.which("strace") and pwd.getpwnam("clashcli-installer-test"):
-            trace = subprocess.run(["strace", "-f", "-e", "trace=openat,execve,setuid,setresuid,setfsuid,capset", "runuser", "-u", "clashcli-installer-test", "--", "sudo", "-n", "true"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
-            trace_text = "\n".join(line for line in trace.stderr.decode(errors="replace").splitlines() if any(key in line for key in ["/etc/shadow", "unix_chkpwd", "setuid(", "setresuid(", "capset("]))[-2500:]
-        raise AssertionError(result.stdout.decode(errors="replace")[-3000:] + "\n" + journal.stdout.decode(errors="replace")[-1500:] + "\n" + helper.stdout.decode(errors="replace")[-1000:] + "\n" + capabilities + "\n" + "\n".join(identity) + "\n" + trace_text)
+        raise AssertionError(result.stdout.decode(errors="replace")[-4000:] + "\n" + journal.stdout.decode(errors="replace")[-1500:] + "\n" + helper.stdout.decode(errors="replace")[-1000:] + "\n" + capabilities)
     return result.stdout
 
 
@@ -50,15 +37,17 @@ sudoers.write_text("clashcli-installer-test ALL=(root) NOPASSWD: ALL\n")
 sudoers.chmod(0o440)
 environment = pathlib.Path("/etc/environment")
 before = environment.read_bytes() if environment.exists() else None
+shadow = pathlib.Path("/etc/shadow")
+shadow_mode = shadow.stat().st_mode & 0o777
 try:
-    # A booted image may have asynchronous NSS/password-record services. The
-    # disposable user must become visible to PAM before testing installation.
-    preflight = ["runuser", "-u", "clashcli-installer-test", "--", "sudo", "-n", "true"]
-    deadline = time.monotonic() + 30
-    while subprocess.run(preflight, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode:
-        if time.monotonic() >= deadline:
-            run(preflight)  # Fail with diagnostics, never skip a broken fixture.
-        time.sleep(1)
+    # Ubuntu host AppArmor's unix-chkpwd profile denies the DAC capabilities
+    # needed by Fedora's mode-000 shadow file, even in privileged containers.
+    # Keep it root-only but directly readable for this disposable sudo fixture;
+    # restore afterwards. Never change the host profile or the user's PAM policy.
+    # https://gitlab.com/apparmor/apparmor/-/issues/402
+    if pathlib.Path("/etc/fedora-release").exists() and shadow_mode == 0:
+        shadow.chmod(0o600)
+    run(["runuser", "-u", "clashcli-installer-test", "--", "sudo", "-n", "true"])
     with target.open("rb") as old:
         old_inode = os.fstat(old.fileno()).st_ino
         run(["runuser", "-u", "clashcli-installer-test", "--", "sh", "/install.sh"])
@@ -72,10 +61,13 @@ try:
     assert set(pathlib.Path("/tmp").glob("clashcli-install.*")) == baseline
     assert not list(target.parent.glob(".clashcli-install.*"))
 finally:
-    sudoers.unlink()
-    # PAM may start a lingering systemd user manager (notably on Arch).
-    uid = str(pwd.getpwnam("clashcli-installer-test").pw_uid)
-    run(["systemctl", "stop", "user@" + uid + ".service", "user-runtime-dir@" + uid + ".service"])
-    run(["userdel", "-r", "clashcli-installer-test"])
-    target.unlink()
+    try:
+        sudoers.unlink()
+        # PAM may start a lingering systemd user manager (notably on Arch).
+        uid = str(pwd.getpwnam("clashcli-installer-test").pw_uid)
+        run(["systemctl", "stop", "user@" + uid + ".service", "user-runtime-dir@" + uid + ".service"])
+        run(["userdel", "-r", "clashcli-installer-test"])
+        target.unlink()
+    finally:
+        shadow.chmod(shadow_mode)
 print("PASS real HTTPS release install, version pin, sudo upgrade, atomic inode replacement and cleanup", flush=True)
