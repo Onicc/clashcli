@@ -1,13 +1,17 @@
 """Exercise the real release installer only inside the disposable Linux subject."""
 import os
 import pathlib
+import pwd
 import subprocess
 
 
 def run(args):
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
     if result.returncode:
-        raise AssertionError(result.stdout.decode(errors="replace")[-4000:])
+        # This phase has no subscriptions or private credentials. Preserve PAM
+        # diagnostics from the disposable account when a distro fixture fails.
+        journal = subprocess.run(["journalctl", "--no-pager", "-t", "sudo", "-n", "15"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
+        raise AssertionError(result.stdout.decode(errors="replace")[-4000:] + "\n" + journal.stdout.decode(errors="replace")[-3000:])
     return result.stdout
 
 
@@ -32,6 +36,7 @@ sudoers.chmod(0o440)
 environment = pathlib.Path("/etc/environment")
 before = environment.read_bytes() if environment.exists() else None
 try:
+    run(["runuser", "-u", "clashcli-installer-test", "--", "sudo", "-n", "true"])
     with target.open("rb") as old:
         old_inode = os.fstat(old.fileno()).st_ino
         run(["runuser", "-u", "clashcli-installer-test", "--", "sh", "/install.sh"])
@@ -46,6 +51,9 @@ try:
     assert not list(target.parent.glob(".clashcli-install.*"))
 finally:
     sudoers.unlink()
+    # PAM may start a lingering systemd user manager (notably on Arch).
+    uid = str(pwd.getpwnam("clashcli-installer-test").pw_uid)
+    run(["systemctl", "stop", "user@" + uid + ".service", "user-runtime-dir@" + uid + ".service"])
     run(["userdel", "-r", "clashcli-installer-test"])
     target.unlink()
 print("PASS real HTTPS release install, version pin, sudo upgrade, atomic inode replacement and cleanup", flush=True)
