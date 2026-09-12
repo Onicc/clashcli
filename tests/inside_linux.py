@@ -65,6 +65,33 @@ except urllib.error.HTTPError as error:
 assert "Secret:" not in cli("ui").stdout.decode()
 passed("external UI, API authentication, private file permissions")
 
+if os.environ.get("CLASHCLI_UI_REVIEW") == "1":
+    import select
+    import socketserver
+    import threading
+    class Bridge(socketserver.BaseRequestHandler):
+        def handle(self):
+            with socket.create_connection(("127.0.0.1", 9090)) as upstream:
+                while True:
+                    ready, _, _ = select.select([self.request, upstream], [], [], 30)
+                    if not ready:
+                        return
+                    for source in ready:
+                        data = source.recv(65536)
+                        if not data:
+                            return
+                        (upstream if source is self.request else self.request).sendall(data)
+    bridge = socketserver.ThreadingTCPServer(("0.0.0.0", 19091), Bridge)
+    bridge.daemon_threads = True
+    threading.Thread(target=bridge.serve_forever, daemon=True).start()
+    print("UI REVIEW READY: http://127.0.0.1:9090/ui/ (fixture only, before live imports)", flush=True)
+    deadline = time.time() + 600
+    while not pathlib.Path("/run/clashcli/ui-review-done").exists():
+        assert time.time() < deadline, "browser review timed out"
+        time.sleep(1)
+    bridge.shutdown()
+    bridge.server_close()
+
 # Exercise the documented SSH tunnel while TUN is toggled later in this test.
 pathlib.Path("/run/sshd").mkdir(exist_ok=True)
 run(["ssh-keygen", "-A"])

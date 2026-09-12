@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--live-stdin", action="store_true", help="read private JSON array of live URLs from stdin; never print it")
     parser.add_argument("--image", help="use an existing test image; it remains owned by its caller")
     parser.add_argument("--coverage", action="store_true", help="instrument the Linux CLI and report real integration coverage")
+    parser.add_argument("--ui-review", action="store_true", help="pause for browser review at localhost:9090; touch /run/clashcli/ui-review-done in the subject to continue")
     options = parser.parse_args()
     live = []
     if options.live_stdin:
@@ -69,7 +70,8 @@ def main():
         containers.append(fixture)
         run(["docker", "cp", str(REPO / "tests/fixture_server.py"), fixture + ":/fixture_server.py"])
         run(["docker", "start", fixture])
-        run(["docker", "create", "--platform", options.platform, "--name", subject, "--label", "io.clashcli.test=" + token, "--network", network, "--ip", "10.231.78.3", "--privileged", "--cgroupns=private", "--tmpfs", "/run", "--tmpfs", "/run/lock", "--tmpfs", "/tmp", image])
+        publish = ["--publish", "127.0.0.1:9090:19091"] if options.ui_review else []
+        run(["docker", "create", "--platform", options.platform, "--name", subject, "--label", "io.clashcli.test=" + token, "--network", network, "--ip", "10.231.78.3", "--privileged", "--cgroupns=private", "--tmpfs", "/run", "--tmpfs", "/run/lock", "--tmpfs", "/tmp", *publish, image])
         containers.append(subject)
         run(["docker", "start", subject])
         run(["docker", "cp", str(binary), subject + ":/usr/local/bin/clashcli"])
@@ -86,7 +88,7 @@ def main():
         print("TEST systemd ready; installing and exercising real mihomo", flush=True)
         # Stream test progress. Live URLs enter the child over stdin only.
         run(["docker", "exec", subject, "mkdir", "-p", "/tmp/clashcli-coverage"])
-        proc = subprocess.Popen(["docker", "exec", "-i", "-e", "GOCOVERDIR=/tmp/clashcli-coverage", subject, "python3", "-u", "/inside_linux.py"], stdin=subprocess.PIPE)
+        proc = subprocess.Popen(["docker", "exec", "-i", "-e", "GOCOVERDIR=/tmp/clashcli-coverage", "-e", "CLASHCLI_UI_REVIEW=" + str(int(options.ui_review)), subject, "python3", "-u", "/inside_linux.py"], stdin=subprocess.PIPE)
         try:
             proc.communicate(json.dumps(live).encode(), timeout=1800)
         except BaseException:
