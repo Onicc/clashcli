@@ -462,6 +462,28 @@ func sameGeneration(a, b string) bool {
 	return true
 }
 
+// TUN toggles create runtime generations, not new subscription content versions.
+func generationContent(path string) string {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return path
+	}
+	h := sha256.New()
+	for _, entry := range entries {
+		if entry.Name() == "config.yaml" || entry.Name() == "generation.json" {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(path, entry.Name()))
+		if err != nil {
+			return path
+		}
+		h.Write([]byte(entry.Name() + "\x00"))
+		h.Write(b)
+		h.Write([]byte{0})
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
 func markCommitted(path string) error {
 	var g Generation
 	if err := readJSON(filepath.Join(path, "generation.json"), &g); err != nil {

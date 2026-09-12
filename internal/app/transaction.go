@@ -509,9 +509,16 @@ func pruneGenerations(p Paths) {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].mtime.After(items[j].mtime) })
 	counts := map[string]int{}
+	seen := map[string]bool{}
 	for _, v := range items {
-		counts[v.source]++
-		if sources[v.source] && counts[v.source] <= 2 || keep[v.path] {
+		key := v.source + ":" + generationContent(v.path)
+		retain := false
+		if !seen[key] {
+			seen[key] = true
+			counts[v.source]++
+			retain = sources[v.source] && counts[v.source] <= 2
+		}
+		if retain || keep[v.path] {
 			continue
 		}
 		_ = removeGeneration(p, v.path)

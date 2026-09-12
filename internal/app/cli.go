@@ -903,6 +903,7 @@ func rollbackPrevious(ctx context.Context, p Paths) error {
 		return err
 	}
 	current, _ := os.Readlink(p.Current())
+	content := generationContent(current)
 	entries, err := os.ReadDir(filepath.Join(p.Data, "generations"))
 	if err != nil {
 		return err
@@ -911,7 +912,7 @@ func rollbackPrevious(ctx context.Context, p Paths) error {
 	var newest time.Time
 	for _, e := range entries {
 		path := filepath.Join(p.Data, "generations", e.Name())
-		if path == current {
+		if path == current || generationContent(path) == content {
 			continue
 		}
 		var g Generation

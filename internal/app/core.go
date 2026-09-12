@@ -400,7 +400,11 @@ func safeCoreOutput(s string) string {
 	return result
 }
 func commandOutput(ctx context.Context, name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	timeout := 30 * time.Second
+	if name == "systemctl" {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var out cappedBuffer
 	c := exec.CommandContext(ctx, name, args...)
@@ -408,11 +412,17 @@ func commandOutput(ctx context.Context, name string, args ...string) (string, er
 	c.Stderr = &out
 	err := c.Run()
 	if err != nil {
+		if ctx.Err() != nil {
+			return out.String(), fmt.Errorf("%s 执行超时或已取消: %w", filepath.Base(name), ctx.Err())
+		}
 		return out.String(), fmt.Errorf("%s 执行失败: %s", filepath.Base(name), Redact(out.String()))
 	}
 	return out.String(), nil
 }
 func systemctl(ctx context.Context, args ...string) error {
 	_, err := commandOutput(ctx, "systemctl", args...)
+	if err != nil {
+		return fmt.Errorf("systemctl %s: %w", strings.Join(args, " "), err)
+	}
 	return err
 }

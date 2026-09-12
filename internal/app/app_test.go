@@ -479,3 +479,50 @@ func TestDigestRejectsMismatch(t *testing.T) {
 		t.Fatal("accepted invalid checksum")
 	}
 }
+
+func TestTunGenerationsPreserveSubscriptionRollback(t *testing.T) {
+	p := testPaths(t)
+	s := DefaultSettings()
+	s.Active = "source"
+	sub := Subscription{ID: "source", Name: "test"}
+	first, err := buildGeneration(context.Background(), p, s, sub, []byte("proxies: [{name: first, type: socks5, server: example.com, port: 1080}]"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := buildGeneration(context.Background(), p, s, sub, []byte("proxies: [{name: second, type: socks5, server: example.com, port: 1080}]"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{first.Path, second.Path} {
+		if err = markCommitted(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current := second
+	secondContent := generationContent(second.Path)
+	for _, enabled := range []bool{true, false, true, false} {
+		s.Tun = enabled
+		current, err = cloneGeneration(p, s, current.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = markCommitted(current.Path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sub.Generation = current.Path
+	s.Subscriptions = []Subscription{sub}
+	if err = saveSettings(p, s); err != nil {
+		t.Fatal(err)
+	}
+	if err = switchLink(p.Current(), current.Path); err != nil {
+		t.Fatal(err)
+	}
+	pruneGenerations(p)
+	if _, err = os.Stat(first.Path); err != nil {
+		t.Fatal("TUN toggles erased previous subscription", err)
+	}
+	if generationContent(current.Path) == generationContent(first.Path) || generationContent(current.Path) != secondContent {
+		t.Fatal("incorrect content identity")
+	}
+}

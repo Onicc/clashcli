@@ -87,8 +87,8 @@ def main():
             raise RuntimeError("real systemd unavailable: " + run(["docker", "logs", subject], check=False).stdout.decode()[-3000:])
         print("TEST systemd ready; installing and exercising real mihomo", flush=True)
         # Stream test progress. Live URLs enter the child over stdin only.
-        run(["docker", "exec", subject, "mkdir", "-p", "/tmp/clashcli-coverage"])
-        proc = subprocess.Popen(["docker", "exec", "-i", "-e", "GOCOVERDIR=/tmp/clashcli-coverage", "-e", "CLASHCLI_UI_REVIEW=" + str(int(options.ui_review)), "-e", "GITHUB_ACTIONS=" + os.environ.get("GITHUB_ACTIONS", ""), subject, "python3", "-u", "/inside_linux.py"], stdin=subprocess.PIPE)
+        run(["docker", "exec", subject, "mkdir", "-p", "/coverage"])
+        proc = subprocess.Popen(["docker", "exec", "-i", "-e", "GOCOVERDIR=/coverage", "-e", "CLASHCLI_UI_REVIEW=" + str(int(options.ui_review)), "-e", "GITHUB_ACTIONS=" + os.environ.get("GITHUB_ACTIONS", ""), subject, "python3", "-u", "/inside_linux.py"], stdin=subprocess.PIPE)
         try:
             proc.communicate(json.dumps(live).encode(), timeout=1800)
         except BaseException:
@@ -98,7 +98,7 @@ def main():
         if proc.returncode:
             raise RuntimeError("Linux acceptance suite failed")
         if options.coverage:
-            run(["docker", "cp", subject + ":/tmp/clashcli-coverage", str(temp / "coverage")])
+            run(["docker", "cp", subject + ":/coverage", str(temp / "coverage")])
             print(run(["go", "tool", "covdata", "percent", "-i=" + str(temp / "coverage")]).stdout.decode(), flush=True)
         print(f"PASS {options.distro} {options.platform}", flush=True)
     finally:
