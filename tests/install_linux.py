@@ -3,6 +3,7 @@ import os
 import pathlib
 import pwd
 import subprocess
+import time
 
 
 def run(args):
@@ -38,7 +39,14 @@ sudoers.chmod(0o440)
 environment = pathlib.Path("/etc/environment")
 before = environment.read_bytes() if environment.exists() else None
 try:
-    run(["runuser", "-u", "clashcli-installer-test", "--", "sudo", "-n", "true"])
+    # A booted image may have asynchronous NSS/password-record services. The
+    # disposable user must become visible to PAM before testing installation.
+    preflight = ["runuser", "-u", "clashcli-installer-test", "--", "sudo", "-n", "true"]
+    deadline = time.monotonic() + 30
+    while subprocess.run(preflight, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode:
+        if time.monotonic() >= deadline:
+            run(preflight)  # Fail with diagnostics, never skip a broken fixture.
+        time.sleep(1)
     with target.open("rb") as old:
         old_inode = os.fstat(old.fileno()).st_ino
         run(["runuser", "-u", "clashcli-installer-test", "--", "sh", "/install.sh"])
