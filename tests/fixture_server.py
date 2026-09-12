@@ -11,7 +11,7 @@ import struct
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-STATE = {"version": 1, "mode": "yaml", "bad_provider": False}
+STATE = {"version": 1, "mode": "yaml", "bad_provider": False, "rule_version": 1}
 COUNTS = collections.Counter()
 ADDRESS = os.environ.get("FIXTURE_IP", "10.231.78.2")
 
@@ -52,6 +52,7 @@ class HTTP(BaseHTTPRequestHandler):
         if path == "/subscription":
             tag = f'"{STATE["mode"]}-{STATE["version"]}"'
             if self.headers.get("If-None-Match") == tag:
+                COUNTS["subscription_304"] += 1
                 self.send_response(304)
                 self.end_headers()
                 return
@@ -61,7 +62,7 @@ class HTTP(BaseHTTPRequestHandler):
             # Some real providers return YAML with this incorrect media type.
             self.send_header("Content-Type", "text/html")
         elif path == "/rules":
-            body = b"invalid: true" if STATE["bad_provider"] else b"payload: ['+.direct.test']\n"
+            body = b"invalid: true" if STATE["bad_provider"] else f"payload: ['+.direct{STATE['rule_version']}.test']\n".encode()
             self.send_response(200)
         elif path == "/state":
             body = json.dumps({"state": STATE, "counts": dict(COUNTS)}).encode()

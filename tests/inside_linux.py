@@ -212,6 +212,17 @@ assert "fixture-v1" in cli("nodes").stdout.decode()
 cli("sub", "update", "--force")
 assert "fixture-v2" in cli("nodes").stdout.decode()
 passed("TUN toggles preserve the previous distinct subscription version")
+previous = status()["generation"]
+cache_hits = json.loads(request("/state"))["counts"].get("subscription_304", 0)
+request("/state", {"rule_version": 2})
+cli("sub", "update")
+assert status()["generation"] != previous
+assert json.loads(request("/state"))["counts"].get("subscription_304", 0) > cache_hits
+assert any(b"direct2.test" in path.read_bytes() for path in pathlib.Path("/var/lib/clashcli/current").glob("provider-*"))
+cli("rollback")
+assert any(b"direct1.test" in path.read_bytes() for path in pathlib.Path("/var/lib/clashcli/current").glob("provider-*"))
+cli("sub", "update", "--force")
+passed("HTTP 304 still updates changed dependencies; dependency snapshot rolls back atomically")
 
 request("/state", {"mode": "base64", "version": 5})
 cli("sub", "add", "base64", "--url-stdin", data=(FIXTURE + "/subscription\n").encode())
@@ -232,7 +243,9 @@ while time.time() < deadline:
         break
     time.sleep(2)
 else:
-    raise AssertionError("real systemd timer did not update")
+    timer = "clashcli-update@" + status()["active_subscription"] + ".timer"
+    diagnostic = run(["systemctl", "show", timer, "-p", "ActiveState", "-p", "NextElapseUSecRealtime", "-p", "LastTriggerUSec"], ok=False).stdout
+    raise AssertionError("real systemd timer did not update\n" + diagnostic.decode() + cli("logs", "-n", "40").stdout.decode())
 cli("sub", "schedule", "fixture", "--every", "off")
 passed("real systemd calendar-triggered update")
 

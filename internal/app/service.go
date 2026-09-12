@@ -98,7 +98,7 @@ func configureTimer(ctx context.Context, p Paths, sub Subscription) error {
 	if _, err = commandOutput(ctx, "systemd-analyze", "calendar", sub.Calendar); err != nil {
 		return errors.New("无效的 systemd 日历表达式")
 	}
-	unit := fmt.Sprintf("[Unit]\nDescription=clashcli scheduled update\n\n[Timer]\nOnCalendar=%s\nPersistent=true\nRandomizedDelaySec=60\nUnit=clashcli-update@%s.service\n\n[Install]\nWantedBy=timers.target\n", sub.Calendar, sub.ID)
+	unit := fmt.Sprintf("[Unit]\nDescription=clashcli scheduled update\n\n[Timer]\nOnCalendar=%s\nPersistent=true\nAccuracySec=1s\nRandomizedDelaySec=60\nUnit=clashcli-update@%s.service\n\n[Install]\nWantedBy=timers.target\n", sub.Calendar, sub.ID)
 	if err = atomicWrite(filepath.Join(p.Units, name), []byte(unit), 0644); err != nil {
 		return err
 	}
