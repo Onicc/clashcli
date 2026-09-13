@@ -89,6 +89,7 @@ original_env = pathlib.Path("/etc/environment").read_bytes()
 request("/state", {"mode": "invalid"})
 result = cli("init", "--name", "fixture", "--url-stdin", "--no-timer", "--desktop", "none", data=(FIXTURE + "/subscription\n").encode(), timeout=600, ok=False)
 assert result.returncode != 0 and not pathlib.Path("/var/lib/clashcli/current").exists()
+assert pathlib.Path("/etc/clashcli/config.yaml").exists(), "initial setup failed before the intended invalid-subscription test:\n" + result.stdout.decode(errors="replace")[-6000:]
 request("/state", {"mode": "yaml"})
 cli("init", timeout=600)
 assert pathlib.Path("/var/lib/clashcli/ASN.mmdb").stat().st_size > 0
