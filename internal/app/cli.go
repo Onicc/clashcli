@@ -28,6 +28,13 @@ var errElevated = errors.New("completed through sudo")
 var inputReader = bufio.NewReader(os.Stdin)
 
 func interactive() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+
+func sudoArguments(exe string, args []string) []string {
+	// Preserve only the desktop hint and standard download-proxy variables, not
+	// the entire user environment or executable/library search paths.
+	return append([]string{"--preserve-env=XDG_CURRENT_DESKTOP,http_proxy,https_proxy,no_proxy,HTTP_PROXY,HTTPS_PROXY,NO_PROXY", "--", exe}, args...)
+}
+
 func prompt(label, def string, secret bool) (string, error) {
 	if !interactive() {
 		return "", fmt.Errorf("缺少 %s；非交互模式请提供参数", label)
@@ -83,7 +90,7 @@ func newCommand(p Paths, version string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			args := append([]string{"--preserve-env=XDG_CURRENT_DESKTOP", "--", exe}, os.Args[1:]...)
+			args := sudoArguments(exe, os.Args[1:])
 			child := exec.CommandContext(cmd.Context(), "sudo", args...)
 			child.Stdin = os.Stdin
 			child.Stdout = os.Stdout

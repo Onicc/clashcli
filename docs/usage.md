@@ -43,6 +43,34 @@ sudo clashcli init --name primary --url-stdin \
 
 `ui update` 重新安装当前 clashcli 版本验证过的 UI 基线，不跟踪不固定的上游分支。内核与 UI 的版本基线通过 clashcli 源码发布更新，避免未经验证的自动内核升级。
 
+## 下载代理
+
+v0.1.2 起，内核、UI、Geo、订阅和 provider 下载遵循进程的 `https_proxy` / `http_proxy` / `no_proxy`，也支持大写形式；同名大小写同时存在时大写优先。未设置时直连，`no_proxy` 匹配的目标与回环目标绕过代理。只设置 `all_proxy` 不生效；需要 SOCKS 时，可将 `https_proxy` / `http_proxy` 设置为 `socks5://host:port`。
+
+```sh
+# 使用已有可达的代理，不要求 clashcli 自己的内核已运行：
+export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890
+clashcli init
+clashcli sub update
+# 手动 sudo / 非交互调用时，显式保留这些变量：
+sudo --preserve-env=http_proxy,https_proxy,no_proxy,HTTP_PROXY,HTTPS_PROXY,NO_PROXY clashcli sub update
+```
+
+普通用户交互调用的自动 sudo 会保留上述变量（仍遵循本机 sudo 策略），不会保留全部环境。内核控制 API 和候选 Unix socket 始终直连；代理地址与凭据不会写入 clashcli 配置。这里的代理仅控制下载出口，不会自动切换系统代理或 TUN。不要指向尚未启动的本机代理；如果大小写变量冲突，请先清除旧值。
+
+每次下载最多 5 分钟，连接/TLS/响应头另有限时，网络错误最多尝试 3 次；失败提示保留已收字节数和超时/连接中断原因，仍会脱敏 URL。不会关闭 TLS 验证或跳过摘要校验。
+
+systemd 定时任务不会继承当前 SSH/shell 的临时 `export`。若定时更新也依赖已有代理，可运行 `sudo systemctl edit clashcli-update@.service` 配置：
+
+```ini
+[Service]
+Environment="https_proxy=http://127.0.0.1:7890"
+Environment="http_proxy=http://127.0.0.1:7890"
+Environment="no_proxy=localhost,127.0.0.1,::1"
+```
+
+保存后运行 `sudo systemctl daemon-reload`，后续更新使用该环境；目标代理必须在任务运行时可用。这是用户自行管理的 systemd 覆盖配置，卸载 clashcli 不会删除它；不再需要时删除自己添加的条目并重新加载。不要在可公开读取的 unit 覆盖文件中存放代理密码。
+
 ## 定时更新
 
 ```sh
@@ -56,7 +84,7 @@ clashcli sub update primary --force
 
 即使主订阅返回 304，远程 provider 仍会重新检查。主配置和依赖都未变化时不重载。非活动订阅更新只更新其本地版本，切换时应用。
 
-下载直接连接原始来源，正常校验 TLS；不会调用第三方转换服务、自动添加镜像或关闭证书校验。TUN 已开启时，普通出站下载也可能按当前 TUN 规则路由。
+下载从原始来源获取内容，按上述下载代理设置选择出口并正常校验 TLS；不会调用第三方转换服务、自动添加镜像或关闭证书校验。TUN 已开启时，普通出站下载也可能按当前 TUN 规则路由。
 
 ## 配置边界
 

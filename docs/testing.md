@@ -20,6 +20,16 @@ Docker 需已经运行。原生 Linux 主机通常只支持自身架构；另一
 
 单元测试覆盖格式识别、下载边界、配置管理字段、provider 文件快照、事务各阶段故障、竞态冲突、原代理恢复、路径安全、日志脱敏及私密 JSON 字段。
 
+代理环境选择用独立子进程验证，避免 Go 的环境缓存影响用例；包含大小写优先级、NO_PROXY、回环绕过和实际 HTTP 转发请求。另覆盖截断/超时的三次尝试、不接受部分响应、进度/原因脱敏、API 直连及 sudo 环境白名单。
+
+可在真实 Linux 网络下以普通用户单独验证在线组件安装：
+
+```sh
+CLASHCLI_TEST_LIVE_DOWNLOAD=1 go test ./internal/app -run '^TestLiveComponentInstall$' -v -count=1 -timeout=16m
+```
+
+需要代理时先设置 `https_proxy` / `http_proxy`。该用例实际下载并校验 mihomo、MetaCubeXD、Geo，在私有临时目录中安装，并使用本地测试订阅启动候选内核检查 Unix API。不会安装系统服务、读取真实订阅、写入系统配置或开启代理/TUN；退出时终止候选进程并清理文件。也可交叉编译 `go test -c` 后上传到同架构 Linux 执行，上传的测试程序需自行清理。默认 `make test` 跳过该联网用例。
+
 Linux 测试使用真实 systemd、mihomo、D-Bus/GSettings 和 KDE 工具。测试网络内提供订阅源、规则源、HTTP 目标、SOCKS5 TCP/UDP 代理及 DNS 服务，验证流量而不依赖公网节点。包含安装、API 认证、代理持久化、候选校验失败、原子重载、TUN、订阅切换、定时任务、异常重启和卸载。
 
 每个 Linux 容器先执行真实 HTTPS 发行版安装：固定版本、普通用户 sudo 升级、旧文件描述符仍可用、权限与临时文件清理；此步骤需要能访问 GitHub Releases。之后替换为本次构建的 CLI 执行功能回归。安装器离线测试另覆盖篡改、错误清单、下载/权限/写入/重命名失败与旧程序保留。

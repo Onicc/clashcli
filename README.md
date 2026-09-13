@@ -32,6 +32,15 @@ clashcli init
 
 下载或订阅校验失败后，修正链接并再次运行 `clashcli init` 即可继续；保留配置卸载后也使用同一命令恢复安装。
 
+GitHub 下载慢或超时？v0.1.2 起支持临时使用已有代理（地址替换为自己的）：
+
+```sh
+export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890
+clashcli init
+```
+
+这只是下载出口，不会开启 clashcli 的系统代理或 TUN。自动 sudo 会保留代理变量；手动 `sudo` 的写法及定时任务说明见[下载代理](docs/usage.md#下载代理)。
+
 直接输入 `clashcli` 使用交互菜单；所有功能也有独立命令。
 
 ## 常用命令

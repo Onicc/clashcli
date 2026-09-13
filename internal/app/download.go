@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,6 +37,18 @@ func httpClient(timeout time.Duration) *http.Client {
 	}}
 }
 
+// Downloads may use the caller's explicit proxy. Keep the control API's client
+// direct: its credentials and recovery path must never depend on that proxy.
+func downloadClient() *http.Client {
+	client := httpClient(5 * time.Minute)
+	transport := client.Transport.(*http.Transport)
+	transport.Proxy = http.ProxyFromEnvironment
+	transport.DialContext = (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	transport.TLSHandshakeTimeout = 15 * time.Second
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	return client
+}
+
 type Download struct {
 	Body           []byte
 	ETag, Modified string
@@ -46,12 +59,16 @@ func download(ctx context.Context, raw string, limit int64, etag, modified strin
 	return downloadHeaders(ctx, raw, limit, etag, modified, nil)
 }
 func downloadHeaders(ctx context.Context, raw string, limit int64, etag, modified string, headers http.Header) (Download, error) {
+	return downloadWithClient(ctx, raw, limit, etag, modified, headers, downloadClient())
+}
+
+func downloadWithClient(ctx context.Context, raw string, limit int64, etag, modified string, headers http.Header, client *http.Client) (Download, error) {
+	defer client.CloseIdleConnections()
 	var result Download
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
 		return result, errors.New("链接必须为不含用户名密码的 HTTP(S) URL")
 	}
-	client := httpClient(40 * time.Second)
 	redirect := client.CheckRedirect
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if err := redirect(req, via); err != nil {
@@ -64,7 +81,6 @@ func downloadHeaders(ctx context.Context, raw string, limit int64, etag, modifie
 		}
 		return nil
 	}
-	defer client.CloseIdleConnections()
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
 			select {
@@ -107,7 +123,11 @@ func downloadHeaders(ctx context.Context, raw string, limit int64, etag, modifie
 		b, e := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 		resp.Body.Close()
 		if e != nil {
-			err = errors.New("下载内容不完整")
+			progress := fmt.Sprintf("%d 字节", len(b))
+			if resp.ContentLength >= 0 {
+				progress = fmt.Sprintf("%d/%d 字节", len(b), resp.ContentLength)
+			}
+			err = fmt.Errorf("下载 %s 内容不完整（已收到 %s）: %s", u.Host, progress, Redact(e.Error()))
 			continue
 		}
 		if int64(len(b)) > limit {
