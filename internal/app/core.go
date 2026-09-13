@@ -223,6 +223,12 @@ func coreEnv(p Paths) []string {
 	return env
 }
 func (c RealCore) Validate(ctx context.Context, g *Generation) error {
+	// Complete dependencies through our verified, proxy-aware downloader before
+	// starting the bounded candidate check. Also upgrades existing installs
+	// when their first operation after a CLI upgrade is sub update or tun on/off.
+	if err := ensureGeo(ctx, c.P); err != nil {
+		return fmt.Errorf("准备预检 Geo 数据: %w", err)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	probe, err := os.MkdirTemp(c.P.Run, "probe-")
@@ -230,7 +236,7 @@ func (c RealCore) Validate(ctx context.Context, g *Generation) error {
 		return err
 	}
 	defer os.RemoveAll(probe)
-	for _, name := range []string{"geoip.dat", "GeoSite.dat", "geoip.metadb"} {
+	for _, name := range geoFiles {
 		if _, err = os.Stat(filepath.Join(c.P.Data, name)); err == nil {
 			if err = os.Symlink(filepath.Join(c.P.Data, name), filepath.Join(probe, name)); err != nil {
 				return err
@@ -286,7 +292,10 @@ func (c RealCore) Validate(ctx context.Context, g *Generation) error {
 	check.Stdout = &output
 	check.Stderr = &output
 	if err = check.Run(); err != nil {
-		return fmt.Errorf("mihomo 配置预检失败: %s", safeCoreOutput(output.String()))
+		if ctx.Err() != nil {
+			return fmt.Errorf("mihomo 配置预检超时或已取消（%w）: %s", ctx.Err(), safeCoreOutput(output.String()))
+		}
+		return fmt.Errorf("mihomo 配置预检失败（%v）: %s", err, safeCoreOutput(output.String()))
 	}
 	child := exec.CommandContext(ctx, c.P.Core(), "-d", probe, "-f", file)
 	child.Env = coreEnv(c.P)
@@ -385,10 +394,22 @@ func candidateReady(doc Document, e Expectation) bool {
 }
 func safeCoreOutput(s string) string {
 	lines := []string{}
+	fallback := []string{}
 	for _, line := range strings.Split(s, "\n") {
-		if strings.Contains(line, "error") || strings.Contains(line, "failed") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fallback = append(fallback, Redact(line))
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "fatal") || strings.Contains(lower, "panic") {
 			lines = append(lines, Redact(line))
 		}
+	}
+	if len(lines) == 0 {
+		if len(fallback) > 5 {
+			fallback = fallback[len(fallback)-5:]
+		}
+		lines = fallback
 	}
 	result := strings.Join(lines, "; ")
 	if len(result) > 1200 {

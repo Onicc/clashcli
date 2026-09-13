@@ -34,6 +34,7 @@ rule-providers:
     url: http://{ADDRESS}:8000/rules
 rules:
   - RULE-SET,local-rules,DIRECT
+  - IP-ASN,13335,DIRECT,no-resolve
   - MATCH,PROXY
 dns:
   enable: true

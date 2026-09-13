@@ -80,6 +80,8 @@ Go 负责类型化状态与事务；Cobra 负责子命令、参数和补全；YA
 
 下载客户端每次请求限时 5 分钟（包含响应体），与始终直连的内核 API 客户端分离。[Go 标准代理环境规则](https://pkg.go.dev/net/http#ProxyFromEnvironment)决定下载出口；自动 sudo 仅显式保留 HTTP(S)/NO_PROXY 与桌面提示变量，不持久化代理凭据。截断下载记录接收进度和脱敏后的原始错误，不会把部分响应当作完整组件安装。
 
+Geo 数据使用共享清单统一在线下载、离线导入和候选目录：`geoip.dat`、`GeoSite.dat`、`geoip.metadb`、`ASN.mmdb`。上游的 [`InitASN`](https://github.com/MetaCubeX/mihomo/blob/v1.19.30/component/geodata/init.go) 在文件缺失时仍会下载，不受 `geo-auto-update: false` 禁止；因此 ASN 必须提前由 CLI 校验下载，不能依赖预检时的隐式下载。补齐依赖发生在 60 秒候选预检计时之前，候选目录链接同一份已校验数据。
+
 ## 权限与生命周期
 
 控制接口和代理端口默认仅绑定回环地址，API 使用随机密钥。设置、订阅版本和恢复记录默认仅 root 可读。候选内核关闭 TUN、代理入口和后台健康检测，不接管主机网络。

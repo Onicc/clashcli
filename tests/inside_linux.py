@@ -91,9 +91,19 @@ result = cli("init", "--name", "fixture", "--url-stdin", "--no-timer", "--deskto
 assert result.returncode != 0 and not pathlib.Path("/var/lib/clashcli/current").exists()
 request("/state", {"mode": "yaml"})
 cli("init", timeout=600)
+assert pathlib.Path("/var/lib/clashcli/ASN.mmdb").stat().st_size > 0
 assert status()["core_running"]
 assert not status()["desired"]["system_proxy"] and not status()["tun_interface"]
 passed("failed-init recovery, verified downloads, systemd start, actual config")
+
+# Upgrade/resume of the previous three-file Geo baseline must add ASN before
+# an IP-ASN configuration is checked or reloaded, not let mihomo fetch it itself.
+pathlib.Path("/var/lib/clashcli/ASN.mmdb").unlink()
+cli("sub", "update", "--force", timeout=600)
+# An unchanged subscription can skip validation; force a new candidate as well.
+cli("tun", "off", timeout=600)
+assert pathlib.Path("/var/lib/clashcli/ASN.mmdb").stat().st_size > 0
+passed("IP-ASN dependency installation and automatic old-install repair before candidate validation")
 
 cli("doctor")
 # Missing TUN is not a fault for ordinary proxy mode.

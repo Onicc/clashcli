@@ -305,10 +305,32 @@ func extractUI(b []byte, dir string) error {
 	}
 	return nil
 }
+
+// Keep online installation, offline imports and candidate staging in sync.
+// IP-ASN rules need ASN.mmdb even when geo-auto-update is disabled.
+var geoFiles = map[string]string{
+	"geoip.dat":         "geoip.dat",
+	"geosite.dat":       "GeoSite.dat",
+	"geoip.metadb":      "geoip.metadb",
+	"GeoLite2-ASN.mmdb": "ASN.mmdb",
+}
+
+func importGeo(p Paths, dir string) error {
+	for _, name := range geoFiles {
+		if err := copyFile(filepath.Join(dir, name), filepath.Join(p.Data, name), 0600); err != nil {
+			return fmt.Errorf("导入 Geo 数据 %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 func ensureGeo(ctx context.Context, p Paths) error {
-	files := map[string]string{"geoip.dat": "geoip.dat", "geosite.dat": "GeoSite.dat", "geoip.metadb": "geoip.metadb"}
+	return ensureGeoFrom(ctx, p, "https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/latest")
+}
+
+func ensureGeoFrom(ctx context.Context, p Paths, releaseURL string) error {
 	missing := false
-	for _, dest := range files {
+	for _, dest := range geoFiles {
 		if _, err := os.Stat(filepath.Join(p.Data, dest)); err != nil {
 			missing = true
 		}
@@ -316,7 +338,7 @@ func ensureGeo(ctx context.Context, p Paths) error {
 	if !missing {
 		return nil
 	}
-	r, err := download(ctx, "https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/latest", 2<<20, "", "")
+	r, err := download(ctx, releaseURL, 2<<20, "", "")
 	if err != nil {
 		return err
 	}
@@ -330,7 +352,7 @@ func ensureGeo(ctx context.Context, p Paths) error {
 	if err = json.Unmarshal(r.Body, &release); err != nil {
 		return err
 	}
-	for name, dest := range files {
+	for name, dest := range geoFiles {
 		if _, err := os.Stat(filepath.Join(p.Data, dest)); err == nil {
 			continue
 		}

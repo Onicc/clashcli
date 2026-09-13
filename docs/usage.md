@@ -39,7 +39,9 @@ sudo clashcli init --name primary --url-stdin \
   --geo-dir ./geo < subscription-url.txt
 ```
 
-`geo` 目录包含 `geoip.dat`、`GeoSite.dat`、`geoip.metadb`。本地导入代表用户信任这些文件；内核执行与配置仍会预检。在线安装固定 mihomo v1.19.30、MetaCubeXD v1.273.1 并验证内置摘要；Geo 数据验证官方发行元数据中的摘要。
+`geo` 目录包含 `geoip.dat`、`GeoSite.dat`、`geoip.metadb`、`ASN.mmdb`（上游文件名为 `GeoLite2-ASN.mmdb`）。v0.1.3 起同时准备 ASN 数据，供 `IP-ASN` 规则使用，离线导入也需准备这四份文件。本地导入代表用户信任这些文件；内核执行与配置仍会预检。在线安装固定 mihomo v1.19.30、MetaCubeXD v1.273.1 并验证内置摘要；Geo 数据验证官方发行元数据中的摘要。
+
+旧版本在订阅预检处失败时，升级 CLI 后再次运行 `clashcli init` 会保留已保存的订阅并补齐缺少的 Geo/ASN 数据。普通订阅更新或 TUN 配置生成候选版本时也会先补齐数据，避免让 mihomo 在 60 秒预检中隐式直连下载。预检仍保留 60 秒上限；超时、退出码和最近的脱敏初始化日志会明确显示。
 
 `ui update` 重新安装当前 clashcli 版本验证过的 UI 基线，不跟踪不固定的上游分支。内核与 UI 的版本基线通过 clashcli 源码发布更新，避免未经验证的自动内核升级。
 

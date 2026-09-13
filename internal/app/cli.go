@@ -340,10 +340,8 @@ func initialize(ctx context.Context, p Paths, o initOptions) error {
 		return err
 	}
 	if o.GeoDir != "" {
-		for _, name := range []string{"geoip.dat", "GeoSite.dat", "geoip.metadb"} {
-			if err = copyFile(filepath.Join(o.GeoDir, name), filepath.Join(p.Data, name), 0600); err != nil {
-				return err
-			}
+		if err = importGeo(p, o.GeoDir); err != nil {
+			return err
 		}
 	} else {
 		fmt.Println("准备 Geo 数据…")
@@ -411,7 +409,12 @@ func resumeInstallation(ctx context.Context, p Paths, o initOptions) error {
 			return err
 		}
 	}
-	if err = ensureGeo(ctx, p); err != nil {
+	if o.GeoDir != "" {
+		err = importGeo(p, o.GeoDir)
+	} else {
+		err = ensureGeo(ctx, p)
+	}
+	if err != nil {
 		return err
 	}
 	exe, err := os.Executable()

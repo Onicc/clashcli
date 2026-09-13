@@ -216,7 +216,8 @@ func removeGeneration(p Paths, path string) error {
 }
 
 var urlPattern = regexp.MustCompile(`(?i)(?:https?|socks5h?)://[^\s<>"']+`)
-var credentialPattern = regexp.MustCompile(`(?i)(token|password|passwd|secret|authorization|uuid)(["']?\s*[:=]\s*["']?)[^\s,"'}]+`)
+var authorizationPattern = regexp.MustCompile(`(?i)((?:proxy-)?authorization["']?\s*[:=]\s*["']?)(?:bearer|basic)\s+[^\s,"'}]+`)
+var credentialPattern = regexp.MustCompile(`(?i)(token|password|passwd|secret|authorization|uuid)(["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,"'}]+)`)
 var sharePattern = regexp.MustCompile(`(?i)(?:ss|ssr|vmess|vless|trojan|hysteria2?(?:\+realm)?|hy2(?:\+realm)?|tuic|anytls|mierus)://[^\s<>"']+`)
 
 func Redact(s string) string {
@@ -229,5 +230,6 @@ func Redact(s string) string {
 		}
 		return u.Scheme + "://" + u.Host + "/[REDACTED]"
 	})
+	s = authorizationPattern.ReplaceAllString(s, "${1}[REDACTED]")
 	return credentialPattern.ReplaceAllString(s, "${1}${2}[REDACTED]")
 }

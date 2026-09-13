@@ -30,6 +30,10 @@ CLASHCLI_TEST_LIVE_DOWNLOAD=1 go test ./internal/app -run '^TestLiveComponentIns
 
 需要代理时先设置 `https_proxy` / `http_proxy`。该用例实际下载并校验 mihomo、MetaCubeXD、Geo，在私有临时目录中安装，并使用本地测试订阅启动候选内核检查 Unix API。不会安装系统服务、读取真实订阅、写入系统配置或开启代理/TUN；退出时终止候选进程并清理文件。也可交叉编译 `go test -c` 后上传到同架构 Linux 执行，上传的测试程序需自行清理。默认 `make test` 跳过该联网用例。
 
+默认在线夹具和 Docker 完整订阅均包含 `IP-ASN` 规则，检查 ASN 数据已安装；单元测试另验证摘要错误/缺失资源不落盘、旧三文件安装补齐、候选目录包含 ASN 链接、进程退出原因及超时日志。Docker 还会移除测试容器里的 ASN 文件并验证下次候选预检补齐，不依赖 mihomo 偷偷下载成功而掩盖遗漏。
+
+经授权使用真实订阅时，可额外设置 `CLASHCLI_TEST_LIVE_SUB_STDIN=1`，向编译后的测试程序标准输入提供 URL（例如从用户自行准备的 `0600` 文件重定向，勿放入参数或仓库）。该模式在临时回环端口启动专用内核，关闭 DNS 监听，使用首个内联节点请求公开 HTTPS 204 测试端点，然后进行原子代次切换、API 重载与健康检查。不会操作正式服务、系统代理、DNS 或 TUN；所有数据、进程和监听在退出时清理。该模式不在公共 CI 中使用，也不输出 URL、原始订阅或节点凭据。
+
 Linux 测试使用真实 systemd、mihomo、D-Bus/GSettings 和 KDE 工具。测试网络内提供订阅源、规则源、HTTP 目标、SOCKS5 TCP/UDP 代理及 DNS 服务，验证流量而不依赖公网节点。包含安装、API 认证、代理持久化、候选校验失败、原子重载、TUN、订阅切换、定时任务、异常重启和卸载。
 
 每个 Linux 容器先执行真实 HTTPS 发行版安装：固定版本、普通用户 sudo 升级、旧文件描述符仍可用、权限与临时文件清理；此步骤需要能访问 GitHub Releases。之后替换为本次构建的 CLI 执行功能回归。安装器离线测试另覆盖篡改、错误清单、下载/权限/写入/重命名失败与旧程序保留。
