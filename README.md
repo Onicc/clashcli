@@ -16,7 +16,7 @@ clashcli
 
 脚本自动识别 amd64/arm64，校验同一发行版本的 SHA-256 后，原子安装到 `/usr/local/bin/clashcli`；普通用户会按需请求 sudo。重复运行即可升级 CLI，失败保留旧程序，不修改订阅、代理设置或正在运行的内核。只安装程序，不自动运行初始化。
 
-可先[查看安装脚本](install.sh)再执行；指定版本时，在末尾使用 `sh -s -- --version v0.1.1`。无法访问 GitHub 时，可从 [Releases](https://github.com/Onicc/clashcli/releases) 手动下载对应架构的程序与 `SHA256SUMS`，校验后执行 `sudo install -m 0755 clashcli-linux-amd64 /usr/local/bin/clashcli`。
+可先[查看安装脚本](install.sh)再执行；指定版本时，在末尾使用 `sh -s -- --version v0.1.2`。无法访问 GitHub 时，可从 [Releases](https://github.com/Onicc/clashcli/releases) 手动下载对应架构的程序与 `SHA256SUMS`，校验后执行 `sudo install -m 0755 clashcli-linux-amd64 /usr/local/bin/clashcli`。
 
 也可在 Linux 上使用 Go 1.26.8+ 从源码安装：
 
