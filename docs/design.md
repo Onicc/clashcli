@@ -78,7 +78,7 @@ Go 负责类型化状态与事务；Cobra 负责子命令、参数和补全；YA
 
 更新下载不长期占用全局生效锁；每个订阅的下载锁防止重复更新同一源。网络错误与 HTTP 5xx/429 最多重试三次，4xx 不盲目重试；单个订阅/依赖限制 16 MiB，下载和预检均可取消。所有自动任务失败返回非零，由 journald 保留结果供状态命令诊断。
 
-下载客户端每次请求限时 5 分钟（包含响应体），与始终直连的内核 API 客户端分离。[Go 标准代理环境规则](https://pkg.go.dev/net/http#ProxyFromEnvironment)决定下载出口；自动 sudo 仅显式保留 HTTP(S)/NO_PROXY 与桌面提示变量，不持久化代理凭据。截断下载记录接收进度和脱敏后的原始错误，不会把部分响应当作完整组件安装。
+下载客户端每次请求限时 5 分钟（包含响应体），与始终直连的内核 API 客户端分离。[Go 标准代理环境规则](https://pkg.go.dev/net/http#ProxyFromEnvironment)决定显式代理下载出口；订阅更新默认选择直连，`--proxy` 才将该选择传递给主订阅和所有 provider。自动 sudo 仅显式保留 HTTP(S)/NO_PROXY 与桌面提示变量，不持久化代理凭据。截断下载记录接收进度和脱敏后的原始错误，不会把部分响应当作完整组件安装。
 
 Geo 数据使用共享清单统一在线下载、离线导入和候选目录：`geoip.dat`、`GeoSite.dat`、`geoip.metadb`、`ASN.mmdb`。上游的 [`InitASN`](https://github.com/MetaCubeX/mihomo/blob/v1.19.30/component/geodata/init.go) 在文件缺失时仍会下载，不受 `geo-auto-update: false` 禁止；因此 ASN 必须提前由 CLI 校验下载，不能依赖预检时的隐式下载。补齐依赖发生在 60 秒候选预检计时之前，候选目录链接同一份已校验数据。
 

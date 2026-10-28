@@ -40,9 +40,19 @@ func httpClient(timeout time.Duration) *http.Client {
 // Downloads may use the caller's explicit proxy. Keep the control API's client
 // direct: its credentials and recovery path must never depend on that proxy.
 func downloadClient() *http.Client {
+	return newDownloadClient(true)
+}
+
+func directDownloadClient() *http.Client {
+	return newDownloadClient(false)
+}
+
+func newDownloadClient(useProxy bool) *http.Client {
 	client := httpClient(5 * time.Minute)
 	transport := client.Transport.(*http.Transport)
-	transport.Proxy = http.ProxyFromEnvironment
+	if useProxy {
+		transport.Proxy = http.ProxyFromEnvironment
+	}
 	transport.DialContext = (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	transport.TLSHandshakeTimeout = 15 * time.Second
 	transport.ResponseHeaderTimeout = 30 * time.Second
@@ -59,7 +69,19 @@ func download(ctx context.Context, raw string, limit int64, etag, modified strin
 	return downloadHeaders(ctx, raw, limit, etag, modified, nil)
 }
 func downloadHeaders(ctx context.Context, raw string, limit int64, etag, modified string, headers http.Header) (Download, error) {
-	return downloadWithClient(ctx, raw, limit, etag, modified, headers, downloadClient())
+	return downloadHeadersWithProxy(ctx, raw, limit, etag, modified, headers, true)
+}
+
+func downloadHeadersWithProxy(ctx context.Context, raw string, limit int64, etag, modified string, headers http.Header, useProxy bool) (Download, error) {
+	client := directDownloadClient()
+	if useProxy {
+		client = downloadClient()
+	}
+	return downloadWithClient(ctx, raw, limit, etag, modified, headers, client)
+}
+
+func downloadDirect(ctx context.Context, raw string, limit int64, etag, modified string) (Download, error) {
+	return downloadHeadersWithProxy(ctx, raw, limit, etag, modified, nil, false)
 }
 
 func downloadWithClient(ctx context.Context, raw string, limit int64, etag, modified string, headers http.Header, client *http.Client) (Download, error) {

@@ -108,6 +108,11 @@ func TestDownloadTimeoutAndAPIIsolation(t *testing.T) {
 	if apiClient.Transport.(*http.Transport).Proxy != nil {
 		t.Fatal("API must not use download proxy or expose its secret to a proxy")
 	}
+	direct := directDownloadClient()
+	defer direct.CloseIdleConnections()
+	if direct.Transport.(*http.Transport).Proxy != nil {
+		t.Fatal("direct subscription update must not select an environment proxy")
+	}
 }
 
 func TestDownloadIncompleteBody(t *testing.T) {

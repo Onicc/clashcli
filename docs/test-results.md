@@ -32,7 +32,7 @@
 
 ## v0.1.1 审查与安装增量
 
-日期：2026-09-12。构建基线更新为 Go 1.26.8；mihomo 和 MetaCubeXD 基线未变。
+日期：2026-09-12。构建基线更新为 Go 1.26.10；mihomo 和 MetaCubeXD 基线未变。
 
 - `make test check audit`：Go race、vet、格式、shell 语法、12 组安装器测试与官方漏洞扫描全部通过。
 - 对实际构建的 amd64、arm64 二进制分别执行漏洞扫描，均未发现已知漏洞。

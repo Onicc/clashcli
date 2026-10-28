@@ -22,8 +22,8 @@ if os.environ.get("GITHUB_ACTIONS") == "true":
     sys.excepthook = annotate_failure
 
 
-def run(args, data=None, ok=True, timeout=240):
-    result = subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+def run(args, data=None, ok=True, timeout=240, env=None):
+    result = subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, env=env)
     if ok and result.returncode:
         # The deterministic suite contains no real credentials. Live failures are handled separately.
         raise AssertionError(" ".join(args[:4]) + "\n" + result.stdout.decode(errors="replace")[-6000:])
@@ -196,6 +196,19 @@ assert not pathlib.Path("/etc/profile.d/clashcli.sh").exists()
 passed("persistent system proxy, fresh login, idempotence, exact restoration")
 
 original_generation = status()["generation"]
+# A broken proxy must not block the default update path. The explicit flag
+# should select that same broken proxy and fail, leaving the active generation.
+broken_proxy_env = os.environ.copy()
+for key in ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"]:
+    broken_proxy_env[key] = "http://127.0.0.1:1"
+broken_proxy_env["no_proxy"] = ""
+broken_proxy_env["NO_PROXY"] = ""
+direct_update = run(["clashcli", "sub", "update", "--force"], env=broken_proxy_env, timeout=600)
+assert direct_update.returncode == 0, direct_update.stdout.decode(errors="replace")[-6000:]
+proxy_update = run(["clashcli", "sub", "update", "--force", "--proxy"], env=broken_proxy_env, ok=False, timeout=60)
+assert proxy_update.returncode != 0 and status()["generation"] == original_generation
+passed("subscription update defaults to direct and --proxy is explicit")
+
 cli("sub", "update")
 assert status()["generation"] == original_generation
 request("/state", {"version": 2})

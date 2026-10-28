@@ -371,7 +371,7 @@ func initialize(ctx context.Context, p Paths, o initOptions) error {
 		return err
 	}
 	fmt.Println("下载并预检订阅…")
-	if err = updateSubscription(ctx, p, sub.ID, true); err != nil {
+	if err = updateSubscription(ctx, p, sub.ID, true, true); err != nil {
 		return fmt.Errorf("订阅配置未完成；可用 sub edit / sub update 重试: %w", err)
 	}
 	if err = installService(ctx, p); err != nil {
@@ -430,7 +430,7 @@ func resumeInstallation(ctx context.Context, p Paths, o initOptions) error {
 		return err
 	}
 	if _, err = os.Stat(filepath.Join(p.Current(), "config.yaml")); err != nil {
-		if err = updateSubscription(ctx, p, s.Active, true); err != nil {
+		if err = updateSubscription(ctx, p, s.Active, true, true); err != nil {
 			return err
 		}
 	}
@@ -548,14 +548,14 @@ func subscriptionCommand(p Paths) *cobra.Command {
 			if err = configureTimer(cmd.Context(), p, changed); err != nil {
 				return err
 			}
-			return updateSubscription(cmd.Context(), p, changed.ID, true)
+			return updateSubscription(cmd.Context(), p, changed.ID, true, true)
 		}}
 		cmd.Flags().BoolVar(&stdin, "url-stdin", false, "从标准输入读取链接")
 		sub.AddCommand(cmd)
 	}
 	sub.AddCommand(&cobra.Command{Use: "use <name>", Short: "切换活动订阅", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return useSubscription(cmd.Context(), p, args[0]) }})
 	var id string
-	var force, all bool
+	var force, all, useProxy bool
 	update := &cobra.Command{Use: "update [name]", Short: "更新订阅，验证成功后原子替换", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if all {
 			s, err := loadSettings(p)
@@ -564,7 +564,7 @@ func subscriptionCommand(p Paths) *cobra.Command {
 			}
 			errs := []error{}
 			for _, v := range s.Subscriptions {
-				if err = updateSubscription(cmd.Context(), p, v.ID, force); err != nil {
+				if err = updateSubscription(cmd.Context(), p, v.ID, force, useProxy); err != nil {
 					errs = append(errs, fmt.Errorf("%s: %w", v.Name, err))
 				}
 			}
@@ -574,10 +574,11 @@ func subscriptionCommand(p Paths) *cobra.Command {
 		if len(args) > 0 {
 			name = args[0]
 		}
-		return updateSubscription(cmd.Context(), p, name, force)
+		return updateSubscription(cmd.Context(), p, name, force, useProxy)
 	}}
 	update.Flags().BoolVar(&force, "force", false, "忽略 HTTP 缓存重新下载")
 	update.Flags().BoolVar(&all, "all", false, "更新所有订阅")
+	update.Flags().BoolVar(&useProxy, "proxy", false, "使用 http_proxy/https_proxy 下载订阅及 provider")
 	update.Flags().StringVar(&id, "id", "", "按内部 ID 更新")
 	_ = update.Flags().MarkHidden("id")
 	sub.AddCommand(update)
@@ -1027,7 +1028,7 @@ func menu(ctx context.Context, p Paths) error {
 		case "3":
 			err = changeTun(ctx, p, !s.Tun)
 		case "4":
-			err = updateSubscription(ctx, p, "", false)
+			err = updateSubscription(ctx, p, "", false, false)
 		case "5":
 			names := []string{}
 			for _, v := range s.Subscriptions {

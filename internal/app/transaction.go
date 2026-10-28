@@ -263,7 +263,7 @@ func mutateSettings(ctx context.Context, p Paths, fn func(*Settings) error) erro
 	s.Revision++
 	return saveSettings(p, s)
 }
-func updateSubscription(ctx context.Context, p Paths, name string, force bool) error {
+func updateSubscription(ctx context.Context, p Paths, name string, force, useProxy bool) error {
 	s, err := loadSettings(p)
 	if err != nil {
 		return err
@@ -292,7 +292,7 @@ func updateSubscription(ctx context.Context, p Paths, name string, force bool) e
 		etag = ""
 		modified = ""
 	}
-	d, err := download(ctx, sub.URL, maxSubscription, etag, modified)
+	d, err := downloadHeadersWithProxy(ctx, sub.URL, maxSubscription, etag, modified, nil, useProxy)
 	if err != nil {
 		recordUpdateError(p, id, err)
 		return err
@@ -307,7 +307,7 @@ func updateSubscription(ctx context.Context, p Paths, name string, force bool) e
 			return errors.New("缓存订阅原文缺失，请使用 sub update --force")
 		}
 	}
-	g, err := buildGeneration(ctx, p, s, *sub, d.Body)
+	g, err := buildGenerationWithProxy(ctx, p, s, *sub, d.Body, useProxy)
 	if err != nil {
 		recordUpdateError(p, id, err)
 		return err
@@ -392,7 +392,7 @@ func useSubscription(ctx context.Context, p Paths, name string) error {
 		return err
 	}
 	if sub.Generation == "" {
-		if err = updateSubscription(ctx, p, sub.ID, true); err != nil {
+		if err = updateSubscription(ctx, p, sub.ID, true, true); err != nil {
 			return err
 		}
 		s, err = loadSettings(p)

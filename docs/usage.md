@@ -49,31 +49,34 @@ ASN 使用 MaxMind 创建的 GeoLite 数据，适用独立的数据许可及更�
 
 ## 下载代理
 
-v0.1.2 起，内核、UI、Geo、订阅和 provider 下载遵循进程的 `https_proxy` / `http_proxy` / `no_proxy`，也支持大写形式；同名大小写同时存在时大写优先。未设置时直连，`no_proxy` 匹配的目标与回环目标绕过代理。只设置 `all_proxy` 不生效；需要 SOCKS 时，可将 `https_proxy` / `http_proxy` 设置为 `socks5://host:port`。
+v0.1.4 起，内核、UI 和 Geo 下载遵循进程的 `https_proxy` / `http_proxy` / `no_proxy`，也支持大写形式；同名大小写同时存在时大写优先。`sub add`、`sub edit`、初始化和显式代理更新也遵循这些变量。`clashcli sub update` 及 systemd 定时更新默认直连，避免代理失效时无法更新订阅；需要代理时显式加 `--proxy`。未设置时直连，`no_proxy` 匹配的目标与回环目标绕过代理。只设置 `all_proxy` 不生效；需要 SOCKS 时，可将 `https_proxy` / `http_proxy` 设置为 `socks5://host:port`。
 
 ```sh
 # 使用已有可达的代理，不要求 clashcli 自己的内核已运行：
 export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890
 clashcli init
 clashcli sub update
+clashcli sub update --proxy  # 明确让本次订阅/provider 下载走代理
 # 手动 sudo / 非交互调用时，显式保留这些变量：
-sudo --preserve-env=http_proxy,https_proxy,no_proxy,HTTP_PROXY,HTTPS_PROXY,NO_PROXY clashcli sub update
+sudo --preserve-env=http_proxy,https_proxy,no_proxy,HTTP_PROXY,HTTPS_PROXY,NO_PROXY clashcli sub update --proxy
 ```
 
 普通用户交互调用的自动 sudo 会保留上述变量（仍遵循本机 sudo 策略），不会保留全部环境。内核控制 API 和候选 Unix socket 始终直连；代理地址与凭据不会写入 clashcli 配置。这里的代理仅控制下载出口，不会自动切换系统代理或 TUN。不要指向尚未启动的本机代理；如果大小写变量冲突，请先清除旧值。
 
 每次下载最多 5 分钟，连接/TLS/响应头另有限时，网络错误最多尝试 3 次；失败提示保留已收字节数和超时/连接中断原因，仍会脱敏 URL。不会关闭 TLS 验证或跳过摘要校验。
 
-systemd 定时任务不会继承当前 SSH/shell 的临时 `export`。若定时更新也依赖已有代理，可运行 `sudo systemctl edit clashcli-update@.service` 配置：
+systemd 定时任务默认直连，不继承当前 SSH/shell 的临时 `export`。若定时更新也依赖已有代理，可运行 `sudo systemctl edit clashcli-update@.service`，把模板服务改为显式代理更新：
 
 ```ini
 [Service]
+ExecStart=
+ExecStart=/usr/local/bin/clashcli sub update --id %i --proxy
 Environment="https_proxy=http://127.0.0.1:7890"
 Environment="http_proxy=http://127.0.0.1:7890"
 Environment="no_proxy=localhost,127.0.0.1,::1"
 ```
 
-保存后运行 `sudo systemctl daemon-reload`，后续更新使用该环境；目标代理必须在任务运行时可用。这是用户自行管理的 systemd 覆盖配置，卸载 clashcli 不会删除它；不再需要时删除自己添加的条目并重新加载。不要在可公开读取的 unit 覆盖文件中存放代理密码。
+保存后运行 `sudo systemctl daemon-reload`，后续更新才会使用该代理；目标代理必须在任务运行时可用。这是用户自行管理的 systemd 覆盖配置，卸载 clashcli 不会删除它；不再需要时删除自己添加的条目并重新加载。不要在可公开读取的 unit 覆盖文件中存放代理密码。
 
 ## 定时更新
 
@@ -82,6 +85,7 @@ clashcli sub schedule primary --every 12h
 clashcli sub schedule primary --every 'Mon..Fri 09:00'
 clashcli sub schedule primary --every off
 clashcli sub update primary --force
+clashcli sub update primary --force --proxy
 ```
 
 每个订阅有独立 systemd timer。支持 `1h`、`6h`、`12h`、`daily`、`off` 和 systemd 日历表达式；采用系统时区，随机延迟最多 60 秒，停机错过的事件在启动后补执行一次。`--force` 忽略主订阅的 HTTP 缓存验证头。

@@ -18,7 +18,7 @@ clashcli
 
 可先[查看安装脚本](install.sh)再执行；指定版本时，在末尾使用 `sh -s -- --version v0.1.3`。无法访问 GitHub 时，可从 [Releases](https://github.com/Onicc/clashcli/releases) 手动下载对应架构的程序与 `SHA256SUMS`，校验后执行 `sudo install -m 0755 clashcli-linux-amd64 /usr/local/bin/clashcli`。
 
-也可在 Linux 上使用 Go 1.26.8+ 从源码安装：
+也可在 Linux 上使用 Go 1.26.10+ 从源码安装：
 
 ```sh
 git clone https://github.com/Onicc/clashcli.git
@@ -54,8 +54,10 @@ clashcli status               # 设置与实际状态
 clashcli logs -f              # 实时日志
 clashcli sub add backup       # 添加订阅，交互输入链接
 clashcli sub use backup       # 切换订阅
-clashcli sub update           # 更新当前订阅
-clashcli sub update --all     # 更新所有订阅
+clashcli sub update           # 直连更新当前订阅
+clashcli sub update --proxy   # 使用 http_proxy/https_proxy 更新
+clashcli sub update --all     # 直连更新所有订阅
+clashcli sub update --all --proxy # 使用代理更新所有订阅
 clashcli sub schedule --every 6h
 clashcli sub schedule --every off
 clashcli nodes               # 查看策略组

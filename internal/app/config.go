@@ -144,6 +144,10 @@ func applyManaged(doc Document, p Paths, s Settings) {
 	doc["dns"] = dns
 }
 func buildGeneration(ctx context.Context, p Paths, s Settings, sub Subscription, raw []byte) (Generation, error) {
+	return buildGenerationWithProxy(ctx, p, s, sub, raw, true)
+}
+
+func buildGenerationWithProxy(ctx context.Context, p Paths, s Settings, sub Subscription, raw []byte, useProxy bool) (Generation, error) {
 	var g Generation
 	doc, format, count, err := parseSubscription(raw)
 	if err != nil {
@@ -182,7 +186,7 @@ func buildGeneration(ctx context.Context, p Paths, s Settings, sub Subscription,
 		}
 		doc = filtered
 		for _, section := range []string{"proxy-providers", "rule-providers"} {
-			if err = materializeProviders(ctx, doc, section, dir, g.ProviderURICounts); err != nil {
+			if err = materializeProvidersWithProxy(ctx, doc, section, dir, g.ProviderURICounts, useProxy); err != nil {
 				return g, err
 			}
 		}
@@ -276,6 +280,10 @@ func rejectLocalCredentials(value any) error {
 	return nil
 }
 func materializeProviders(ctx context.Context, doc Document, section, dir string, counts map[string]int) error {
+	return materializeProvidersWithProxy(ctx, doc, section, dir, counts, true)
+}
+
+func materializeProvidersWithProxy(ctx context.Context, doc Document, section, dir string, counts map[string]int, useProxy bool) error {
 	value, exists := doc[section]
 	if !exists {
 		return nil
@@ -316,7 +324,7 @@ func materializeProviders(ctx context.Context, doc Document, section, dir string
 				}
 			}
 		}
-		d, err := downloadHeaders(ctx, u, maxSubscription, "", "", headers)
+		d, err := downloadHeadersWithProxy(ctx, u, maxSubscription, "", "", headers, useProxy)
 		if err != nil {
 			return fmt.Errorf("%s 依赖下载失败: %w", section, err)
 		}
