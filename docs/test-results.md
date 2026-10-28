@@ -1,5 +1,13 @@
 # 验证记录
 
+## v0.1.4 订阅更新出口修复
+
+日期：2026-10-28。订阅主文档和 provider 下载现在由同一个显式出口选择控制：普通 `sub update` 和 systemd timer 直连，`sub update --proxy` 使用进程的 HTTP(S) 代理环境变量。
+
+- 本地 `make test check audit` 通过；标准库漏洞扫描在 Go 1.26.8 上发现已修复版本为 Go 1.26.10 的告警，工具链已升级并重新扫描通过。
+- 新增 Linux 完整验收：在失效代理环境下默认更新成功，显式 `--proxy` 失败且活动 generation 保持不变；主订阅及 provider 均覆盖。
+- 修复提交 `0ff9a6b` 的 [CI](https://github.com/Onicc/clashcli/actions/runs/40721203232) 五项全部通过；Ubuntu、Debian、Fedora、Arch 的完整验收均覆盖失效代理下的默认直连更新和显式 `--proxy` 路径。
+
 ## v0.1.3 真实订阅的 ASN 依赖修复
 
 日期：2026-09-14。在用户授权的 Ubuntu 26.04.1 LTS amd64 实机，以普通用户和私有临时目录验证用户提供的真实订阅；链接、token、原文和节点凭据未进入仓库或报告。
@@ -32,7 +40,7 @@
 
 ## v0.1.1 审查与安装增量
 
-日期：2026-09-12。构建基线更新为 Go 1.26.10；mihomo 和 MetaCubeXD 基线未变。
+日期：2026-09-12。构建基线更新为 Go 1.26.8；mihomo 和 MetaCubeXD 基线未变。
 
 - `make test check audit`：Go race、vet、格式、shell 语法、12 组安装器测试与官方漏洞扫描全部通过。
 - 对实际构建的 amd64、arm64 二进制分别执行漏洞扫描，均未发现已知漏洞。
